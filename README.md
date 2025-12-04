@@ -15,6 +15,10 @@ Ce guide explique comment configurer un flux vidéo **RTSP** et **WebRTC** depui
 Lancer MediaMTX en mode host pour exposer les ports RTSP / WebRTC :
 
 ```bash
+sudo docker pull bluenviron/mediamtx:latest
+```
+
+```bash
 sudo docker run -d \
   --network host \
   --device /dev/video0 \
