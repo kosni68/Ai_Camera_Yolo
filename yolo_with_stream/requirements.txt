@@ -1,0 +1,15 @@
+ultralytics==8.3.107
+opencv-python==4.11.0.86
+numpy==1.26.4
+pytesseract==0.3.13
+pillow==11.2.1
+
+# Si tu utilises les modèles .pt
+torch==2.6.0
+torchvision==0.21.0
+
+tqdm==4.64.1
+requests==2.28.1
+
+# Optionnel si tu veux tester EasyOCR
+easyocr==1.7.2
