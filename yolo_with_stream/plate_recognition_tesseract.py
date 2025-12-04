@@ -113,7 +113,8 @@ def main():
     print("Loading YOLO models...")
 
     # Charge le modèle principal (yolov8n_ncnn_model ou .pt selon ce que tu veux)
-    model = YOLO("./yolo_with_stream/models/yolov8n.pt")  # ou "./models/yolov8n.pt"
+    #model = YOLO("./yolo_with_stream/models/yolov8n.pt")
+    model = YOLO("./yolo_with_stream/models/yolov8n_ncnn_model")  # ou "./models/yolov8n.pt"
     license_plate_detector_model = YOLO("./yolo_with_stream/models/license_plate_detector.pt")
 
     log_file_path = "./yolo_with_stream/data/detected_plates.txt"
