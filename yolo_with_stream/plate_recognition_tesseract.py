@@ -90,7 +90,7 @@ def initialize_rtsp_stream(rtsp_url):
 def main():
     # ✅ Mets ici l’URL de ta caméra RTSP
     #rtsp_url = "rtsp://user:password@192.168.1.50:554/Streaming/Channels/101"
-    rtsp_url = "rtsp://rpi:rpi@192.168.1.222:8554/mystream/"
+    rtsp_url = "rtsp://192.168.1.222:8554/mystream"
     
     print("starting RTSP stream...")
     cap = initialize_rtsp_stream(rtsp_url)
