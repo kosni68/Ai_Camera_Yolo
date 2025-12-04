@@ -1,229 +1,22 @@
+import time
 import cv2
 from ultralytics import YOLO
-import pytesseract
-import numpy as np
-import time
-import re
-import threading
-from queue import Queue, Empty
 
-# --- Fonctions utilitaires ---
-
-def sharpen_image(image):
-    kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
-    return cv2.filter2D(image, -1, kernel)
+from capture import FrameGrabber
+from detection import analyze_with_second_model
+from ocr_worker import PlateOcrWorker
+from utils import draw_fps_info, VEHICLE_CLASSES
 
 
-def preprocess_for_ocr(image):
-    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    gray = cv2.resize(gray, (0, 0), fx=2, fy=2)
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    denoised = cv2.fastNlMeansDenoising(gray, None, 30, 7, 21)
-    thresh = cv2.adaptiveThreshold(
-        denoised,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV,
-        11,
-        2,
-    )
-    return thresh
+def load_models():
+    # model principal
+    detector = YOLO("./yolo_with_stream/models/yolov8n_ncnn_model")
+    # second modèle pour raffiner la plaque
+    plate_detector = YOLO("./yolo_with_stream/models/license_plate_detector.pt")
+    return detector, plate_detector
 
-
-def is_french_plate(text):
-    clean = text.replace(" ", "").replace("-", "").upper()
-    pattern = r"^([A-Z]{2}\d{3}[A-Z]{2}|\d{4}[A-Z]{2}\d{2}|\d{3}[A-Z]{2}\d{2})$"
-    return re.match(pattern, clean) is not None
-
-
-def format_french_plate(text):
-    clean = text.replace(" ", "").replace("-", "").upper()
-    if re.match(r"^[A-Z]{2}\d{3}[A-Z]{2}$", clean):
-        return f"{clean[:2]}-{clean[2:5]}-{clean[5:]}"
-    if re.match(r"^\d{4}[A-Z]{2}\d{2}$", clean):
-        return f"{clean[:4]} {clean[4:6]} {clean[6:]}"
-    if re.match(r"^\d{3}[A-Z]{2}\d{2}$", clean):
-        return f"{clean[:3]} {clean[3:5]} {clean[5:]}"
-    return text
-
-
-def run_tesseract_ocr(image):
-    pre = preprocess_for_ocr(image)
-    sharp = sharpen_image(pre)
-    resized = cv2.resize(sharp, (0, 0), fx=2, fy=2)
-    custom_config = r"--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    print("Running OCR with Tesseract")
-    text = pytesseract.image_to_string(resized, config=custom_config)
-    return text.strip()
-
-
-def analyze_with_second_model(frame, model):
-    print("Running secondary model prediction")
-    results = model.predict(frame, imgsz=320)[0]
-    for box in results.boxes:
-        x1, y1, x2, y2 = map(int, box.xyxy[0])
-        plate_crop = frame[y1:y2, x1:x2]
-        if plate_crop.size > 0:
-            return plate_crop
-    return np.array([])
-
-
-def draw_fps_info(frame, fps, min_fps, max_fps):
-    fps_text = f"FPS: {fps:.1f} | Min: {min_fps:.1f} | Max: {max_fps:.1f}"
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 1.0
-    font_thickness = 2
-    text_color = (0, 255, 0)
-    bg_color = (0, 0, 0)
-    (text_width, text_height), _ = cv2.getTextSize(fps_text, font, font_scale, font_thickness)
-    x, y = frame.shape[1] - text_width - 30, text_height + 20
-    cv2.rectangle(
-        frame,
-        (x - 10, y - text_height - 10),
-        (x + text_width + 10, y + 10),
-        bg_color,
-        -1,
-    )
-    cv2.putText(frame, fps_text, (x, y), font, font_scale, text_color, font_thickness)
-    return frame
-
-
-def initialize_rtsp_stream(rtsp_url):
-    cap = cv2.VideoCapture(rtsp_url)
-    if not cap.isOpened():
-        raise RuntimeError(f"Impossible d'ouvrir le flux RTSP : {rtsp_url}")
-    return cap
-
-
-class FrameGrabber(threading.Thread):
-    """Capture le flux RTSP en tache de fond pour ne pas bloquer l'inference."""
-
-    def __init__(self, rtsp_url, queue_size=3):
-        super().__init__(daemon=True)
-        self.rtsp_url = rtsp_url
-        self.queue = Queue(maxsize=queue_size)
-        self.stop_event = threading.Event()
-        self.ready = threading.Event()
-        self.last_error = None
-        self.cap = None
-
-    def run(self):
-        try:
-            self.cap = initialize_rtsp_stream(self.rtsp_url)
-            self.ready.set()
-        except Exception as exc:
-            self.last_error = exc
-            self.ready.set()
-            return
-
-        while not self.stop_event.is_set():
-            ret, frame = self.cap.read()
-            if not ret or frame is None:
-                time.sleep(0.01)
-                continue
-
-            if self.queue.full():
-                try:
-                    self.queue.get_nowait()
-                except Empty:
-                    pass
-            self.queue.put(frame)
-
-        if self.cap:
-            self.cap.release()
-
-    def get_latest(self, timeout=0.5):
-        if self.last_error:
-            raise self.last_error
-
-        try:
-            frame = self.queue.get(timeout=timeout)
-        except Empty:
-            return None
-
-        while not self.queue.empty():
-            try:
-                frame = self.queue.get_nowait()
-            except Empty:
-                break
-        return frame
-
-    def stop(self):
-        self.stop_event.set()
-
-
-class PlateOcrWorker(threading.Thread):
-    """Traite l'OCR en asynchrone pour ne pas bloquer l'inference principale."""
-
-    def __init__(self, log_file_path, queue_size=5):
-        super().__init__(daemon=True)
-        self.queue = Queue(maxsize=queue_size)
-        self.stop_event = threading.Event()
-        self.log_file_path = log_file_path
-        self.last_plate = None
-        self.latest_text = None
-        self.lock = threading.Lock()
-
-    def submit(self, crop):
-        if crop is None or crop.size == 0:
-            return
-        if self.queue.full():
-            try:
-                self.queue.get_nowait()
-            except Empty:
-                pass
-        self.queue.put(crop)
-
-    def get_latest_plate(self):
-        with self.lock:
-            return self.latest_text
-
-    def run(self):
-        while not self.stop_event.is_set():
-            try:
-                crop = self.queue.get(timeout=0.2)
-            except Empty:
-                continue
-
-            text = run_tesseract_ocr(crop)
-            if not text:
-                continue
-
-            if is_french_plate(text):
-                formatted = format_french_plate(text)
-                with self.lock:
-                    if formatted == self.last_plate:
-                        self.latest_text = formatted
-                        continue
-                    self.last_plate = formatted
-                    self.latest_text = formatted
-                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-                with open(self.log_file_path, "a") as log_file:
-                    log_file.write(f"[{timestamp}] {formatted}\n")
-            else:
-                with self.lock:
-                    self.latest_text = text
-                print(f"[IGNORED] Non-French plate format: {text}")
-
-    def stop(self):
-        self.stop_event.set()
-
-
-VEHICLE_CLASSES = {
-    "car",
-    "truck",
-    "bus",
-    "motorbike",
-    "motorcycle",
-    "bicycle",
-    "van",
-}
-
-
-# --- Main RTSP ---
 
 def main():
-    # Mets ici l'URL de ta camera RTSP
     # rtsp_url = "rtsp://user:password@192.168.1.50:554/Streaming/Channels/101"
     rtsp_url = "rtsp://192.168.1.222:8554/mystream"
 
@@ -238,8 +31,6 @@ def main():
 
     print("Configuring display window...")
     cv2.namedWindow("Camera", cv2.WINDOW_NORMAL)
-
-    print("Resizing display window...")
     cv2.resizeWindow("Camera", 1280, 720)
 
     print("Reading initial frame...")
@@ -248,11 +39,7 @@ def main():
         raise RuntimeError("Impossible de recuperer une frame initiale depuis le flux RTSP.")
 
     print("Loading YOLO models...")
-
-    # Charge le modele principal (yolov8n_ncnn_model ou .pt selon ce que tu veux)
-    # model = YOLO("./yolo_with_stream/models/yolov8n.pt")
-    model = YOLO("./yolo_with_stream/models/yolov8n_ncnn_model")  # ou "./models/yolov8n.pt"
-    license_plate_detector_model = YOLO("./yolo_with_stream/models/license_plate_detector.pt")
+    model, license_plate_detector_model = load_models()
 
     log_file_path = "./yolo_with_stream/data/detected_plates.txt"
     fps_log_file_path = "./yolo_with_stream/data/fps_stats.txt"
@@ -273,9 +60,6 @@ def main():
                 print("Frame manquante, attente du flux...")
                 time.sleep(0.01)
                 continue
-
-            # Si besoin : rotation
-            # frame = cv2.rotate(frame, cv2.ROTATE_180)
 
             print("Running YOLO prediction")
             results = model.predict(frame, imgsz=320)[0]
@@ -302,7 +86,6 @@ def main():
                 ocr_worker.submit(refined_crop)
                 cv2.imshow("Plate", refined_crop)
 
-            # FPS base sur le temps reel de la boucle
             loop_time = time.time() - start_time
             fps = 1.0 / loop_time if loop_time > 0 else 0.0
 
