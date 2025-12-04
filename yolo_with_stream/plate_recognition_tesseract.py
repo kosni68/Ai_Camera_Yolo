@@ -209,6 +209,17 @@ class PlateOcrWorker(threading.Thread):
         self.stop_event.set()
 
 
+VEHICLE_CLASSES = {
+    "car",
+    "truck",
+    "bus",
+    "motorbike",
+    "motorcycle",
+    "bicycle",
+    "van",
+}
+
+
 # --- Main RTSP ---
 
 def main():
@@ -271,6 +282,11 @@ def main():
             annotated_frame = results.plot()
 
             for box in results.boxes:
+                cls_id = int(box.cls[0]) if box.cls is not None else -1
+                cls_name = results.names.get(cls_id, str(cls_id)) if hasattr(results, "names") else str(cls_id)
+                if cls_name.lower() not in VEHICLE_CLASSES:
+                    continue
+
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 plate_crop = frame[y1:y2, x1:x2]
 
