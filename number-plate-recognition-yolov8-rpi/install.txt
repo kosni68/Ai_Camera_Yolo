@@ -1,0 +1,14 @@
+sudo apt install python3-pip libopencv-dev python3-opencv libgtk-3-dev -y
+python3 -m venv --system-site-packages env_yolo_object
+source env_yolo_object/bin/activate
+pip install -U pip
+pip install ultralytics[export]
+
+pip install easyocr
+	pip install --force-reinstall opencv-python
+	pip uninstall opencv-python-headless
+	pip install opencv-python
+	pip uninstall numpy
+	pip install numpy==1.26.4
+
+sudo apt install tesseract-ocr
