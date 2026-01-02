@@ -43,7 +43,7 @@ libcamera-vid -t 0 --width 1280 --height 720 --codec yuv420 --inline -n -o - | f
 ```
 
 ```bash
-libcamera-vid -t 0 --width 4608 --height 2592 --framerate 14 \
+libcamera-vid -t 0 --width 4608 --height 2592 --framerate 14 --rotation 180 \
   --codec h264 --inline -n --libav-format h264 -o - | \
 ffmpeg -re -f h264 -i - -c:v copy -f rtsp -rtsp_transport tcp rtsp://localhost:8554/mystream2
 ```
