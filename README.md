@@ -43,11 +43,42 @@ libcamera-vid -t 0 --width 1280 --height 720 --rotation 180 --codec yuv420 --inl
 ```
 
 ```bash
-libcamera-vid -t 0 --width 4608 --height 2592 --framerate 14 --rotation 180 \
-  --codec h264 --inline -n --libav-format h264 -o - | \
-ffmpeg -re -f h264 -i - -c:v copy -f rtsp -rtsp_transport tcp rtsp://localhost:8554/mystream2
+libcamera-vid -t 0 --width 4608 --height 2592 --rotation 180 --codec yuv420 --inline -n -o - | ffmpeg -f rawvideo -pix_fmt yuv420p -s:v 4608x2592 -i - -c:v libx264 -preset ultrafast -tune zerolatency -f rtsp rtsp://localhost:8554/mystream
 ```
 
+```bash
+libcamera-vid -t 0 --width 4608 --height 2592 --framerate 14 --rotation 180 \
+  --codec yuv420 --inline -n -o - | \
+ffmpeg -f rawvideo -pix_fmt yuv420p -s:v 4608x2592 -framerate 14 -i - \
+  -an -c:v libx264 -preset ultrafast -tune zerolatency \
+  -g 28 -keyint_min 28 -sc_threshold 0 \
+  -crf 28 \
+  -f rtsp -rtsp_transport tcp -muxdelay 0 -muxpreload 0 \
+  rtsp://localhost:8554/mystream
+```
+Si tu veux meilleure qualité : baisse -crf (ex: 26).
+Si tu veux moins de CPU : monte -crf (ex: 30).
+
+
+```bash
+libcamera-vid -t 0 --width 4608 --height 2592 --framerate 14 --rotation 180 \
+  --codec yuv420 --inline -n -o - | \
+ffmpeg -f rawvideo -pix_fmt yuv420p -s:v 4608x2592 -framerate 14 -i - \
+  -an -c:v libx264 -preset ultrafast -tune zerolatency \
+  -g 28 -keyint_min 28 -sc_threshold 0 \
+  -b:v 12M -maxrate 12M -bufsize 24M \
+  -f rtsp -rtsp_transport tcp -muxdelay 0 -muxpreload 0 \
+  rtsp://localhost:8554/mystream
+```
+
+```bash
+libcamera-vid -t 0 --mode 4608:2592:10 --width 4096 --height 2304 --framerate 14 --rotation 180 \
+  --codec yuv420 --inline -n -o - | \
+ffmpeg -f rawvideo -pix_fmt yuv420p -s:v 4096x2304 -framerate 14 -i - \
+  -c:v libx264 -preset ultrafast -tune zerolatency \
+  -x264-params "keyint=14:min-keyint=14:scenecut=0:repeat-headers=1" \
+  -f rtsp -rtsp_transport tcp rtsp://localhost:8554/mystream
+```
 Le flux sera disponible à ces adresses :
 
 ### ▶️ Lecture RTSP
