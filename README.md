@@ -39,7 +39,7 @@ Cela démarre un serveur RTSP sur :
 Commande manuelle pour tester le flux :
 
 ```bash
-libcamera-vid -t 0 --width 1280 --height 720 --codec yuv420 --inline -n -o - | ffmpeg -f rawvideo -pix_fmt yuv420p -s:v 1280x720 -i - -c:v libx264 -preset ultrafast -tune zerolatency -f rtsp rtsp://localhost:8554/mystream
+libcamera-vid -t 0 --width 1280 --height 720 --rotation 180 --codec yuv420 --inline -n -o - | ffmpeg -f rawvideo -pix_fmt yuv420p -s:v 1280x720 -i - -c:v libx264 -preset ultrafast -tune zerolatency -f rtsp rtsp://localhost:8554/mystream
 ```
 
 ```bash
