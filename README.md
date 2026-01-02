@@ -42,6 +42,12 @@ Commande manuelle pour tester le flux :
 libcamera-vid -t 0 --width 1280 --height 720 --codec yuv420 --inline -n -o - | ffmpeg -f rawvideo -pix_fmt yuv420p -s:v 1280x720 -i - -c:v libx264 -preset ultrafast -tune zerolatency -f rtsp rtsp://localhost:8554/mystream
 ```
 
+```bash
+libcamera-vid -t 0 --width 4608 --height 2592 --framerate 14 \
+  --codec h264 --inline -n --libav-format h264 -o - | \
+ffmpeg -re -f h264 -i - -c:v copy -f rtsp -rtsp_transport tcp rtsp://localhost:8554/mystream2
+```
+
 Le flux sera disponible à ces adresses :
 
 ### ▶️ Lecture RTSP
