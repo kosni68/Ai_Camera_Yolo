@@ -105,12 +105,13 @@ Contenu :
 
 ```ini
 [Unit]
-Description=Raspberry Pi Camera RTSP Stream
-After=network.target
+Description=Camera RTSP stream (libcamera-vid -> ffmpeg -> MediaMTX)
+After=network.target mediamtx.service
+Wants=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash -c "libcamera-vid -t 0 --width 1280 --height 720 --codec yuv420 --rotation 180 --inline -n -o - | ffmpeg -f rawvideo -pix_fmt yuv420p -s:v 1280x720 -i - -c:v libx264 -preset ultrafast -tune zerolatency -f rtsp rtsp://localhost:8554/mystream"
+ExecStart=/bin/bash -lc 'libcamera-vid -t 0 --mode 4608:2592:10 --width 4096 --height 2304 --framerate 14 --codec yuv420 --rotation 180 --inline -n -o - | ffmpeg -f rawvideo -pix_fmt yuv420p -s:v 4096x2304 -framerate 14 -i - -an -c:v libx264 -preset ultrafast -tune zerolatency -x264-params "keyint=14:min-keyint=14:scenecut=0:repeat-headers=1" -f rtsp -rtsp_transport tcp rtsp://localhost:8554/mystream'
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -118,6 +119,7 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
+
 ```
 
 ---
