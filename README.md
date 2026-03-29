@@ -156,3 +156,30 @@ http://<IP_RPI>:8889/mystream
 | Stream WebRTC | `http://<IP>:8889/mystream` |
 | Démarrer service | `sudo systemctl start rpi-rtsp` |
 | Activer au boot | `sudo systemctl enable rpi-rtsp` |
+---
+
+## Windows setup pour `yolo_with_stream`
+
+Pour preparer l'environnement Windows et lancer la detection de plaques, execute ces commandes depuis la racine du repo :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\yolo_with_stream\setup_env.ps1
+.\yolo_with_stream\.venv\Scripts\Activate.ps1
+python .\yolo_with_stream\plate_recognition_tesseract.py
+```
+
+Si tu es deja dans le dossier `yolo_with_stream`, utilise plutot :
+
+```powershell
+.\setup_env.ps1
+.\.venv\Scripts\Activate.ps1
+python .\plate_recognition_tesseract.py
+```
+
+Notes utiles :
+
+- Le script cree ou reutilise `yolo_with_stream/.venv`.
+- Python 3.12 est requis.
+- Tesseract est installe automatiquement via `winget` s'il n'est pas deja present.
+- Pour installer les dependances optionnelles EasyOCR : `python -m pip install -r .\yolo_with_stream\requirements-optional.txt`
+- Si `tesseract` n'est pas reconnu juste apres l'installation, ouvre un nouveau terminal PowerShell.

@@ -1,0 +1,2 @@
+# Optional OCR dependencies
+easyocr==1.7.2

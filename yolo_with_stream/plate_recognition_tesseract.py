@@ -18,7 +18,7 @@ def load_models():
 
 def main():
     # rtsp_url = "rtsp://user:password@192.168.1.50:554/Streaming/Channels/101"
-    rtsp_url = "rtsp://192.168.1.222:8554/mystream"
+    rtsp_url = "rtsp://192.168.1.196:554/stream1"
 
     print("starting RTSP stream...")
     frame_grabber = FrameGrabber(rtsp_url)
