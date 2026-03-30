@@ -22,6 +22,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 REQUIRED_CONFIG_KEYS = (
     "rtsp_url",
+    "video_display_enabled",
     "save_detections_enabled",
     "detection_save_min_confidence",
     "detection_save_root",
@@ -58,6 +59,10 @@ def load_runtime_config(config_path):
     rtsp_url = str(raw_config["rtsp_url"]).strip()
     if not rtsp_url:
         raise RuntimeError("Configuration key 'rtsp_url' must not be empty.")
+
+    video_display_enabled = raw_config["video_display_enabled"]
+    if not isinstance(video_display_enabled, bool):
+        raise RuntimeError("Configuration key 'video_display_enabled' must be a boolean.")
 
     save_detections_enabled = raw_config["save_detections_enabled"]
     if not isinstance(save_detections_enabled, bool):
@@ -113,6 +118,7 @@ def load_runtime_config(config_path):
 
     return {
         "rtsp_url": rtsp_url,
+        "video_display_enabled": video_display_enabled,
         "save_detections_enabled": save_detections_enabled,
         "detection_save_min_confidence": detection_save_min_confidence,
         "detection_save_root": detection_save_root,
@@ -307,6 +313,7 @@ def main():
     fps_summary_interval = config["fps_summary_interval"]
     session_started_at = current_local_timestamp()
     rtsp_url = config["rtsp_url"]
+    video_display_enabled = config["video_display_enabled"]
     save_detections_enabled = config["save_detections_enabled"]
     detection_save_min_confidence = config["detection_save_min_confidence"]
     detection_save_root = config["detection_save_root"]
@@ -316,6 +323,7 @@ def main():
 
     print(f"[CONFIG] Loaded {CONFIG_PATH}")
     print(f"[CONFIG] RTSP URL: {rtsp_url}")
+    print(f"[CONFIG] Video display: {'ON' if video_display_enabled else 'OFF'}")
     print(f"[CONFIG] Save detections: {'ON' if save_detections_enabled else 'OFF'}")
     print(f"[CONFIG] FPS limit: {fps_limit:.1f}")
     print(f"[CONFIG] Detector FPS limit: {detector_fps_limit:.1f}")
@@ -339,9 +347,10 @@ def main():
         if frame_grabber.last_error:
             raise frame_grabber.last_error
 
-        print("Configuring display window...")
-        cv2.namedWindow("Camera", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Camera", 1280, 720)
+        if video_display_enabled:
+            print("Configuring display window...")
+            cv2.namedWindow("Camera", cv2.WINDOW_NORMAL)
+            cv2.resizeWindow("Camera", 1280, 720)
 
         print("Reading initial frame...")
         frame = frame_grabber.get_latest(timeout=2)
@@ -417,7 +426,8 @@ def main():
                 if plate_crop.size == 0:
                     continue
 
-                cv2.imshow("Cropped Plate", plate_crop)
+                if video_display_enabled:
+                    cv2.imshow("Cropped Plate", plate_crop)
 
                 refined_crop = analyze_with_second_model(plate_crop, license_plate_detector_model)
                 if refined_crop.size == 0:
@@ -425,7 +435,8 @@ def main():
 
                 if ocr_worker.submit(refined_crop):
                     submitted_this_frame = True
-                    cv2.imshow("Plate", refined_crop)
+                    if video_display_enabled:
+                        cv2.imshow("Plate", refined_crop)
 
             latest_plate_info = ocr_worker.get_latest_plate_info()
             stats_info = ocr_worker.get_stats_info()
@@ -484,10 +495,11 @@ def main():
             )
 
             annotated_frame = draw_fps_info(annotated_frame, fps, min_fps, max_fps)
-            cv2.imshow("Camera", annotated_frame)
+            if video_display_enabled:
+                cv2.imshow("Camera", annotated_frame)
 
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
 
         write_fps_summary(
             fps_log_file_path,
@@ -503,7 +515,8 @@ def main():
             ocr_worker.join(timeout=2)
         frame_grabber.stop()
         frame_grabber.join(timeout=2)
-        cv2.destroyAllWindows()
+        if video_display_enabled:
+            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

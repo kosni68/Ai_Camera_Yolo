@@ -184,6 +184,7 @@ Notes utiles :
 - Pour installer les dependances optionnelles EasyOCR : `python -m pip install -r .\yolo_with_stream\requirements-optional.txt`
 - Si `tesseract` n'est pas reconnu juste apres l'installation, ouvre un nouveau terminal PowerShell.
 - Les reglages runtime du script sont charges depuis `yolo_with_stream/config.json`.
+- `video_display_enabled` dans `yolo_with_stream/config.json` active ou coupe toutes les fenetres OpenCV du script.
 - `fps_limit` dans `yolo_with_stream/config.json` plafonne la boucle principale du script.
 - `detector_fps_limit` dans `yolo_with_stream/config.json` cadence les inferences YOLO pour reduire la charge CPU tout en gardant un affichage fluide.
 - `roi_enabled`, `roi_x`, `roi_y`, `roi_width` et `roi_height` dans `yolo_with_stream/config.json` permettent de limiter l'analyse du modele principal a une zone rectangulaire normalisee.
