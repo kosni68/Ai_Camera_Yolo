@@ -10,9 +10,9 @@ from utils import draw_fps_info, VEHICLE_CLASSES
 
 def load_models():
     # model principal
-    detector = YOLO("./yolo_with_stream/models/yolov8n_ncnn_model")
+    detector = YOLO("./yolo_with_stream/models/yolov8n_ncnn_model", task="detect")
     # second modèle pour raffiner la plaque
-    plate_detector = YOLO("./yolo_with_stream/models/license_plate_detector.pt")
+    plate_detector = YOLO("./yolo_with_stream/models/license_plate_detector.pt", task="detect")
     return detector, plate_detector
 
 
@@ -61,8 +61,7 @@ def main():
                 time.sleep(0.01)
                 continue
 
-            print("Running YOLO prediction")
-            results = model.predict(frame, imgsz=320)[0]
+            results = model.predict(frame, imgsz=320, verbose=False)[0]
             annotated_frame = results.plot()
 
             for box in results.boxes:
