@@ -186,6 +186,7 @@ Notes utiles :
 - Les reglages runtime du script sont charges depuis `yolo_with_stream/config.json`.
 - `fps_limit` dans `yolo_with_stream/config.json` plafonne la boucle principale du script.
 - `detector_fps_limit` dans `yolo_with_stream/config.json` cadence les inferences YOLO pour reduire la charge CPU tout en gardant un affichage fluide.
+- `roi_enabled`, `roi_x`, `roi_y`, `roi_width` et `roi_height` dans `yolo_with_stream/config.json` permettent de limiter l'analyse du modele principal a une zone rectangulaire normalisee.
 
 ## Logs et stats OCR
 

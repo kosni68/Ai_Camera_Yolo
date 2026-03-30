@@ -25,6 +25,11 @@ REQUIRED_CONFIG_KEYS = (
     "save_detections_enabled",
     "detection_save_min_confidence",
     "detection_save_root",
+    "roi_enabled",
+    "roi_x",
+    "roi_y",
+    "roi_width",
+    "roi_height",
     "fps_limit",
     "fps_log_interval",
     "fps_summary_interval",
@@ -58,6 +63,10 @@ def load_runtime_config(config_path):
     if not isinstance(save_detections_enabled, bool):
         raise RuntimeError("Configuration key 'save_detections_enabled' must be a boolean.")
 
+    roi_enabled = raw_config["roi_enabled"]
+    if not isinstance(roi_enabled, bool):
+        raise RuntimeError("Configuration key 'roi_enabled' must be a boolean.")
+
     detection_save_root_value = str(raw_config["detection_save_root"]).strip()
     if not detection_save_root_value:
         raise RuntimeError("Configuration key 'detection_save_root' must not be empty.")
@@ -68,16 +77,35 @@ def load_runtime_config(config_path):
         fps_log_interval = float(raw_config["fps_log_interval"])
         fps_summary_interval = float(raw_config["fps_summary_interval"])
         detector_fps_limit = float(raw_config.get("detector_fps_limit", min(fps_limit, 10.0)))
+        roi_x = float(raw_config["roi_x"])
+        roi_y = float(raw_config["roi_y"])
+        roi_width = float(raw_config["roi_width"])
+        roi_height = float(raw_config["roi_height"])
     except (TypeError, ValueError) as exc:
         raise RuntimeError(
             "Configuration keys 'detection_save_min_confidence', 'fps_limit', "
-            "'fps_log_interval', 'fps_summary_interval', and 'detector_fps_limit' must be numeric."
+            "'fps_log_interval', 'fps_summary_interval', 'detector_fps_limit', "
+            "'roi_x', 'roi_y', 'roi_width', and 'roi_height' must be numeric."
         ) from exc
 
     if fps_limit <= 0:
         raise RuntimeError("Configuration key 'fps_limit' must be greater than 0.")
     if detector_fps_limit <= 0:
         raise RuntimeError("Configuration key 'detector_fps_limit' must be greater than 0.")
+    for key, value in (
+        ("roi_x", roi_x),
+        ("roi_y", roi_y),
+        ("roi_width", roi_width),
+        ("roi_height", roi_height),
+    ):
+        if not (0.0 <= value <= 1.0):
+            raise RuntimeError(f"Configuration key '{key}' must be between 0.0 and 1.0.")
+    if roi_width <= 0.0 or roi_height <= 0.0:
+        raise RuntimeError("Configuration keys 'roi_width' and 'roi_height' must be greater than 0.")
+    if roi_x + roi_width > 1.0:
+        raise RuntimeError("Configuration keys 'roi_x' + 'roi_width' must be <= 1.0.")
+    if roi_y + roi_height > 1.0:
+        raise RuntimeError("Configuration keys 'roi_y' + 'roi_height' must be <= 1.0.")
 
     detection_save_root = Path(detection_save_root_value)
     if not detection_save_root.is_absolute():
@@ -89,6 +117,13 @@ def load_runtime_config(config_path):
         "detection_save_min_confidence": detection_save_min_confidence,
         "detection_save_root": detection_save_root,
         "detector_fps_limit": min(detector_fps_limit, fps_limit),
+        "roi": {
+            "enabled": roi_enabled,
+            "x": roi_x,
+            "y": roi_y,
+            "width": roi_width,
+            "height": roi_height,
+        },
         "fps_limit": fps_limit,
         "fps_log_interval": fps_log_interval,
         "fps_summary_interval": fps_summary_interval,
@@ -127,7 +162,48 @@ def _sanitize_label(value):
     return safe or "unknown"
 
 
-def extract_detection_records(results):
+def build_roi_pixels(frame, roi_config):
+    if not roi_config["enabled"]:
+        return None
+
+    frame_height, frame_width = frame.shape[:2]
+    x1 = int(round(frame_width * roi_config["x"]))
+    y1 = int(round(frame_height * roi_config["y"]))
+    x2 = int(round(frame_width * (roi_config["x"] + roi_config["width"])))
+    y2 = int(round(frame_height * (roi_config["y"] + roi_config["height"])))
+
+    x1 = max(0, min(x1, frame_width - 1))
+    y1 = max(0, min(y1, frame_height - 1))
+    x2 = max(x1 + 1, min(x2, frame_width))
+    y2 = max(y1 + 1, min(y2, frame_height))
+
+    return {
+        **roi_config,
+        "x1": x1,
+        "y1": y1,
+        "x2": x2,
+        "y2": y2,
+    }
+
+
+def crop_frame_to_roi(frame, roi_pixels):
+    if roi_pixels is None:
+        return frame
+    return frame[roi_pixels["y1"]:roi_pixels["y2"], roi_pixels["x1"]:roi_pixels["x2"]]
+
+
+def box_intersects_roi(detection, roi_pixels):
+    if roi_pixels is None:
+        return True
+    return (
+        detection["x1"] < roi_pixels["x2"]
+        and detection["x2"] > roi_pixels["x1"]
+        and detection["y1"] < roi_pixels["y2"]
+        and detection["y2"] > roi_pixels["y1"]
+    )
+
+
+def extract_detection_records(results, x_offset=0, y_offset=0):
     detections = []
     names = results.names if hasattr(results, "names") else {}
 
@@ -142,10 +218,10 @@ def extract_detection_records(results):
                 "class_name": str(cls_name),
                 "label": _sanitize_label(str(cls_name)),
                 "confidence": confidence,
-                "x1": x1,
-                "y1": y1,
-                "x2": x2,
-                "y2": y2,
+                "x1": x1 + x_offset,
+                "y1": y1 + y_offset,
+                "x2": x2 + x_offset,
+                "y2": y2 + y_offset,
             }
         )
 
@@ -168,8 +244,17 @@ def collect_detected_classes(detections, min_confidence=0.0):
     return classes
 
 
-def draw_detected_boxes(frame, detections):
+def draw_detected_boxes(frame, detections, roi_pixels=None):
     annotated = frame.copy()
+    if roi_pixels is not None:
+        cv2.rectangle(
+            annotated,
+            (roi_pixels["x1"], roi_pixels["y1"]),
+            (roi_pixels["x2"], roi_pixels["y2"]),
+            (255, 200, 0),
+            2,
+        )
+
     for detection in detections:
         x1 = max(0, detection["x1"])
         y1 = max(0, detection["y1"])
@@ -226,6 +311,7 @@ def main():
     detection_save_min_confidence = config["detection_save_min_confidence"]
     detection_save_root = config["detection_save_root"]
     detector_fps_limit = config["detector_fps_limit"]
+    roi_config = config["roi"]
     fps_limit = config["fps_limit"]
 
     print(f"[CONFIG] Loaded {CONFIG_PATH}")
@@ -233,6 +319,13 @@ def main():
     print(f"[CONFIG] Save detections: {'ON' if save_detections_enabled else 'OFF'}")
     print(f"[CONFIG] FPS limit: {fps_limit:.1f}")
     print(f"[CONFIG] Detector FPS limit: {detector_fps_limit:.1f}")
+    if roi_config["enabled"]:
+        print(
+            f"[CONFIG] ROI: ON x={roi_config['x']:.2f} y={roi_config['y']:.2f} "
+            f"w={roi_config['width']:.2f} h={roi_config['height']:.2f}"
+        )
+    else:
+        print("[CONFIG] ROI: OFF")
 
     print("starting RTSP stream...")
     frame_grabber = FrameGrabber(rtsp_url, queue_size=1)
@@ -284,10 +377,18 @@ def main():
                 continue
 
             fresh_detections = []
+            roi_pixels = build_roi_pixels(frame, roi_config)
             current_perf = time.perf_counter()
             if (current_perf - last_detector_run_at) >= detector_interval or not last_detections:
-                results = model.predict(frame, imgsz=320, verbose=False)[0]
-                fresh_detections = extract_detection_records(results)
+                detection_frame = crop_frame_to_roi(frame, roi_pixels)
+                results = model.predict(detection_frame, imgsz=320, verbose=False)[0]
+                x_offset = roi_pixels["x1"] if roi_pixels is not None else 0
+                y_offset = roi_pixels["y1"] if roi_pixels is not None else 0
+                fresh_detections = extract_detection_records(results, x_offset=x_offset, y_offset=y_offset)
+                if roi_pixels is not None:
+                    fresh_detections = [
+                        detection for detection in fresh_detections if box_intersects_roi(detection, roi_pixels)
+                    ]
                 last_detections = fresh_detections
                 last_detector_run_at = time.perf_counter()
 
@@ -295,12 +396,12 @@ def main():
                     detected_classes = collect_detected_classes(fresh_detections, detection_save_min_confidence)
                     if detected_classes:
                         save_detection_frame(
-                            draw_detected_boxes(frame, fresh_detections),
+                            draw_detected_boxes(frame, fresh_detections, roi_pixels=roi_pixels),
                             detected_classes,
                             detection_save_root,
                         )
 
-            annotated_frame = draw_detected_boxes(frame, last_detections)
+            annotated_frame = draw_detected_boxes(frame, last_detections, roi_pixels=roi_pixels)
 
             submitted_this_frame = False
 
