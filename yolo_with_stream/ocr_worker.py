@@ -15,11 +15,17 @@ except ImportError:
 
 from utils import (
     build_ocr_variants,
-    format_french_plate,
     is_french_plate,
     match_french_plate,
     normalize_ocr_text,
     prepare_plate_for_ocr,
+)
+from log_utils import (
+    active_history_label,
+    atomic_write_text,
+    append_line,
+    current_local_timestamp,
+    daily_history_path,
 )
 
 
@@ -214,9 +220,11 @@ class PlateOcrWorker(threading.Thread):
         super().__init__(daemon=True)
         self.queue = Queue(maxsize=queue_size)
         self.stop_event = threading.Event()
-        self.log_file_path = log_file_path
+        self.log_file_path = os.fspath(log_file_path)
         self.last_plate = None
+        self.last_plate_count = 0
         self.latest_text = None
+        self.latest_plate_info = None
         self.lock = threading.Lock()
         self.recent_candidates = deque(maxlen=10)
         self.last_submit_time = 0.0
@@ -224,6 +232,17 @@ class PlateOcrWorker(threading.Thread):
         self.submit_interval_sec = 0.35
         self.same_crop_retry_sec = 1.0
         self.signature_diff_threshold = 2.0
+        self.plate_history_interval_sec = 30.0
+        self.last_history_plate = None
+        self.last_history_write_time = 0.0
+        self.last_history_label = None
+        self.session_started_at = current_local_timestamp()
+        self.ocr_jobs_processed = 0
+        self.ocr_success_stabilized = 0
+        self.ocr_failure_total = 0
+        self.ocr_failure_non_french = 0
+        self.ocr_failure_unstable = 0
+        self.ocr_failure_empty = 0
         self.tesseract_path = configure_tesseract()
         self.easyocr_reader = create_easyocr_reader()
         self.ocr_available = self.easyocr_reader is not None or self.tesseract_path is not None
@@ -234,6 +253,8 @@ class PlateOcrWorker(threading.Thread):
             print(f"[OCR] Using Tesseract at {self.tesseract_path}")
         if not self.ocr_available:
             print("[OCR] Tesseract introuvable. Definis TESSERACT_CMD ou relance setup_env.ps1.")
+
+        self._write_compact_log()
 
     def _compute_signature(self, crop):
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
@@ -272,7 +293,110 @@ class PlateOcrWorker(threading.Thread):
 
     def get_latest_plate(self):
         with self.lock:
-            return self.latest_text
+            if self.latest_plate_info is None:
+                return None
+            return self.latest_plate_info["plate"]
+
+    def get_latest_plate_info(self):
+        with self.lock:
+            if self.latest_plate_info is None:
+                return None
+            return dict(self.latest_plate_info)
+
+    def get_stats_info(self):
+        with self.lock:
+            return self._build_stats_info_locked()
+
+    def _build_stats_info_locked(self):
+        current_plate = None
+        consecutive_reads = 0
+        if self.latest_plate_info is not None:
+            current_plate = self.latest_plate_info["plate"]
+            consecutive_reads = self.latest_plate_info["consecutive_count"]
+
+        processed = self.ocr_jobs_processed
+        success_rate = (self.ocr_success_stabilized / processed * 100.0) if processed else 0.0
+        failure_rate = (self.ocr_failure_total / processed * 100.0) if processed else 0.0
+
+        return {
+            "current_plate": current_plate,
+            "consecutive_reads": consecutive_reads,
+            "ocr_jobs_processed": processed,
+            "ocr_success_stabilized": self.ocr_success_stabilized,
+            "ocr_failure_total": self.ocr_failure_total,
+            "ocr_failure_non_french": self.ocr_failure_non_french,
+            "ocr_failure_unstable": self.ocr_failure_unstable,
+            "ocr_failure_empty": self.ocr_failure_empty,
+            "ocr_success_rate_pct": success_rate,
+            "ocr_failure_rate_pct": failure_rate,
+            "session_started_at": self.session_started_at,
+            "active_history_file": active_history_label(self.log_file_path),
+        }
+
+    def _write_compact_log(self):
+        with self.lock:
+            stats = self._build_stats_info_locked()
+
+        lines = [
+            f"current_plate={stats['current_plate'] or ''}",
+            f"consecutive_reads={stats['consecutive_reads']}",
+            f"ocr_jobs_processed={stats['ocr_jobs_processed']}",
+            f"ocr_success_stabilized={stats['ocr_success_stabilized']}",
+            f"ocr_failure_total={stats['ocr_failure_total']}",
+            f"ocr_failure_non_french={stats['ocr_failure_non_french']}",
+            f"ocr_failure_unstable={stats['ocr_failure_unstable']}",
+            f"ocr_failure_empty={stats['ocr_failure_empty']}",
+            f"ocr_success_rate_pct={stats['ocr_success_rate_pct']:.1f}",
+            f"ocr_failure_rate_pct={stats['ocr_failure_rate_pct']:.1f}",
+            f"session_started_at={stats['session_started_at']}",
+            f"active_history_file={stats['active_history_file']}",
+        ]
+        atomic_write_text(self.log_file_path, "\n".join(lines) + "\n")
+
+    def _record_job_outcome(self, outcome):
+        with self.lock:
+            self.ocr_jobs_processed += 1
+            if outcome == "success":
+                self.ocr_success_stabilized += 1
+            else:
+                self.ocr_failure_total += 1
+                if outcome == "non_french":
+                    self.ocr_failure_non_french += 1
+                elif outcome == "unstable":
+                    self.ocr_failure_unstable += 1
+                elif outcome == "empty":
+                    self.ocr_failure_empty += 1
+                else:
+                    raise ValueError(f"Unknown OCR outcome: {outcome}")
+
+        self._write_compact_log()
+
+    def _maybe_append_plate_history(self, stable_plate_info):
+        plate = stable_plate_info["plate"]
+        consecutive_count = stable_plate_info["consecutive_count"]
+        history_file = daily_history_path(self.log_file_path)
+        history_label = active_history_label(self.log_file_path)
+        now = time.time()
+        timestamp = current_local_timestamp()
+
+        should_write = False
+        suffix = ""
+        if self.last_history_plate != plate or self.last_history_label != history_label:
+            should_write = True
+        elif (now - self.last_history_write_time) >= self.plate_history_interval_sec:
+            should_write = True
+            suffix = f" | heartbeat={int(self.plate_history_interval_sec)}s"
+
+        if not should_write:
+            return
+
+        append_line(
+            history_file,
+            f"[{timestamp}] {plate} | consecutive_reads={consecutive_count}{suffix}",
+        )
+        self.last_history_plate = plate
+        self.last_history_write_time = now
+        self.last_history_label = history_label
 
     def _build_consensus_plate(self):
         if len(self.recent_candidates) < 2:
@@ -347,18 +471,25 @@ class PlateOcrWorker(threading.Thread):
 
         with self.lock:
             if consensus is None:
-                self.latest_text = candidate["formatted"]
                 return None
 
-            self.latest_text = consensus["formatted"]
-            has_changed = consensus["formatted"] != self.last_plate
             required_samples = 6 if self.last_plate is None else 3
             required_dominance = 0.50 if self.last_plate is None else 0.45
-            if len(self.recent_candidates) >= required_samples and min(consensus["dominance"]) >= required_dominance and has_changed:
-                self.last_plate = consensus["formatted"]
-                return consensus["formatted"]
+            if len(self.recent_candidates) < required_samples or min(consensus["dominance"]) < required_dominance:
+                return None
 
-        return None
+            if consensus["formatted"] == self.last_plate:
+                self.last_plate_count += 1
+            else:
+                self.last_plate = consensus["formatted"]
+                self.last_plate_count = 1
+
+            self.latest_text = self.last_plate
+            self.latest_plate_info = {
+                "plate": self.last_plate,
+                "consecutive_count": self.last_plate_count,
+            }
+            return dict(self.latest_plate_info)
 
     def run(self):
         if not self.ocr_available:
@@ -370,6 +501,7 @@ class PlateOcrWorker(threading.Thread):
             except Empty:
                 continue
 
+            result = None
             try:
                 result = run_ocr(crop, self.easyocr_reader)
             except TesseractNotFoundError:
@@ -377,22 +509,29 @@ class PlateOcrWorker(threading.Thread):
                 if self.easyocr_reader is None:
                     self.ocr_available = False
                     break
+                self._record_job_outcome("empty")
+                continue
             except Exception as exc:
                 print(f"[OCR] Erreur pendant la lecture de plaque: {exc}")
                 continue
 
             if result is None:
+                self._record_job_outcome("empty")
                 continue
 
             if result["normalized"] is not None:
-                stable_plate = self._update_stable_plate(result)
-                if stable_plate is not None:
-                    print(f"[OCR] Plaque stabilisee: {stable_plate}")
-                    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-                    with open(self.log_file_path, "a") as log_file:
-                        log_file.write(f"[{timestamp}] {stable_plate}\n")
+                stable_plate_info = self._update_stable_plate(result)
+                if stable_plate_info is not None:
+                    plate = stable_plate_info["plate"]
+                    consecutive_count = stable_plate_info["consecutive_count"]
+                    print(f"[OCR] Plaque stabilisee: {plate} (x{consecutive_count})")
+                    self._record_job_outcome("success")
+                    self._maybe_append_plate_history(stable_plate_info)
+                else:
+                    self._record_job_outcome("unstable")
             else:
                 print(f"[IGNORED] Non-French plate format: {result['raw']}")
+                self._record_job_outcome("non_french")
 
     def stop(self):
         self.stop_event.set()

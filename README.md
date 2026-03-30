@@ -183,3 +183,36 @@ Notes utiles :
 - Tesseract est installe automatiquement via `winget` s'il n'est pas deja present.
 - Pour installer les dependances optionnelles EasyOCR : `python -m pip install -r .\yolo_with_stream\requirements-optional.txt`
 - Si `tesseract` n'est pas reconnu juste apres l'installation, ouvre un nouveau terminal PowerShell.
+
+## Logs et stats OCR
+
+Au lancement de `python .\yolo_with_stream\plate_recognition_tesseract.py`, deux fichiers "courants" sont maintenant reecrits en place :
+
+- `yolo_with_stream/data/detected_plates.txt`
+- `yolo_with_stream/data/fps_stats.txt`
+
+Ces fichiers restent compacts et contiennent uniquement l'etat de session le plus recent.
+
+Les historiques detailles sont ecrits dans :
+
+- `yolo_with_stream/data/history/detected_plates-YYYY-MM-DD.txt`
+- `yolo_with_stream/data/history/fps_stats-YYYY-MM-DD.txt`
+
+Rotation :
+
+- un nouveau fichier est cree chaque jour selon l'heure locale de la machine.
+- pour les plaques, l'historique detaille ecrit au premier verrouillage, au changement de plaque, puis toutes les 30 secondes si la meme plaque reste stable.
+
+Definition du taux OCR :
+
+- `ocr_jobs_processed` = nombre de crops OCR reellement traites.
+- `ocr_success_stabilized` = nombre de jobs ayant abouti a une plaque francaise stabilisee.
+- `ocr_failure_total` = nombre de jobs n'ayant pas abouti a une plaque francaise stabilisee.
+- `ocr_failure_non_french` = texte lu mais hors format FR.
+- `ocr_failure_unstable` = candidat FR vu mais pas encore stabilise.
+- `ocr_failure_empty` = aucun texte exploitable.
+
+Le taux affiche a l'ecran et dans `detected_plates.txt` est calcule par session :
+
+- `ocr_success_rate_pct = ocr_success_stabilized / ocr_jobs_processed * 100`
+- `ocr_failure_rate_pct = ocr_failure_total / ocr_jobs_processed * 100`
