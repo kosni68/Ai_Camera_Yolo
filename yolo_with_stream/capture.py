@@ -1,13 +1,25 @@
 import cv2
+import os
 import time
 import threading
 from queue import Queue, Empty
 
 
 def initialize_rtsp_stream(rtsp_url):
-    cap = cv2.VideoCapture(rtsp_url)
+    if rtsp_url.startswith("rtsp://") and "OPENCV_FFMPEG_CAPTURE_OPTIONS" not in os.environ:
+        # TCP is more resilient than UDP for lossy RTSP links and reduces HEVC reference-frame errors.
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+
+    cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+    if not cap.isOpened():
+        cap.release()
+        cap = cv2.VideoCapture(rtsp_url)
+
     if not cap.isOpened():
         raise RuntimeError(f"Impossible d'ouvrir le flux RTSP : {rtsp_url}")
+
+    if hasattr(cv2, "CAP_PROP_BUFFERSIZE"):
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     return cap
 
 

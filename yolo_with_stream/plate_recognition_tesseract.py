@@ -1,4 +1,5 @@
 import time
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -16,6 +17,10 @@ from log_utils import (
 from ocr_worker import PlateOcrWorker
 from utils import draw_fps_info, VEHICLE_CLASSES
 
+BASE_DIR = Path(__file__).resolve().parent
+SAVE_DETECTIONS_ENABLED = True
+DETECTION_SAVE_ROOT = BASE_DIR / "data" / "detections"
+
 
 def write_fps_summary(summary_path, session_started_at, current_fps, session_min_fps, session_max_fps):
     lines = [
@@ -29,16 +34,60 @@ def write_fps_summary(summary_path, session_started_at, current_fps, session_min
 
 
 def load_models():
-    base_dir = Path(__file__).resolve().parent
-    detector = YOLO(str(base_dir / "models" / "yolov8n_ncnn_model"), task="detect")
-    plate_detector = YOLO(str(base_dir / "models" / "license_plate_detector.pt"), task="detect")
+    detector = YOLO(str(BASE_DIR / "models" / "yolov8n_ncnn_model"), task="detect")
+    plate_detector = YOLO(str(BASE_DIR / "models" / "license_plate_detector.pt"), task="detect")
     return detector, plate_detector
 
 
+def _sanitize_label(value):
+    safe = "".join(char if char.isalnum() or char in ("-", "_") else "-" for char in value.strip().lower())
+    safe = safe.strip("-_")
+    return safe or "unknown"
+
+
+def collect_detected_classes(results):
+    classes = []
+    seen = set()
+    names = results.names if hasattr(results, "names") else {}
+
+    for box in results.boxes:
+        cls_id = int(box.cls[0]) if box.cls is not None else -1
+        cls_name = names.get(cls_id, str(cls_id)) if hasattr(names, "get") else str(cls_id)
+        normalized = _sanitize_label(str(cls_name))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        classes.append(normalized)
+
+    return classes
+
+
+def save_detection_frame(frame, detected_classes, save_root):
+    if frame is None or frame.size == 0 or not detected_classes:
+        return []
+
+    timestamp = datetime.now()
+    day_folder = timestamp.strftime("%Y-%m-%d")
+    file_stamp = timestamp.strftime("%Y%m%d-%H%M%S-%f")[:-3]
+    classes_slug = "-".join(detected_classes)
+    file_name = f"{file_stamp}__{classes_slug}.jpg"
+
+    saved_paths = []
+    for class_name in detected_classes:
+        output_path = Path(save_root) / day_folder / class_name / file_name
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if cv2.imwrite(str(output_path), frame):
+            saved_paths.append(output_path)
+            print(f"[DETECTION] Saved {output_path} | classes={','.join(detected_classes)}")
+        else:
+            print(f"[DETECTION] Failed to save {output_path}")
+
+    return saved_paths
+
+
 def main():
-    base_dir = Path(__file__).resolve().parent
-    log_file_path = base_dir / "data" / "detected_plates.txt"
-    fps_log_file_path = base_dir / "data" / "fps_stats.txt"
+    log_file_path = BASE_DIR / "data" / "detected_plates.txt"
+    fps_log_file_path = BASE_DIR / "data" / "fps_stats.txt"
     fps_log_interval = 10.0
     fps_summary_interval = 1.0
     session_started_at = current_local_timestamp()
@@ -69,6 +118,9 @@ def main():
 
         print("Loading YOLO models...")
         model, license_plate_detector_model = load_models()
+        print(f"[DETECTION] Save mode: {'ON' if SAVE_DETECTIONS_ENABLED else 'OFF'}")
+        if SAVE_DETECTIONS_ENABLED:
+            print(f"[DETECTION] Save root: {DETECTION_SAVE_ROOT}")
 
         ocr_worker = PlateOcrWorker(log_file_path)
         ocr_worker.start()
@@ -91,6 +143,11 @@ def main():
 
             results = model.predict(frame, imgsz=320, verbose=False)[0]
             annotated_frame = results.plot()
+            detection_save_frame = annotated_frame.copy()
+            detected_classes = collect_detected_classes(results)
+            if SAVE_DETECTIONS_ENABLED and detected_classes:
+                save_detection_frame(detection_save_frame, detected_classes, DETECTION_SAVE_ROOT)
+
             submitted_this_frame = False
 
             for box in results.boxes:
