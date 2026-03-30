@@ -183,6 +183,9 @@ Notes utiles :
 - Tesseract est installe automatiquement via `winget` s'il n'est pas deja present.
 - Pour installer les dependances optionnelles EasyOCR : `python -m pip install -r .\yolo_with_stream\requirements-optional.txt`
 - Si `tesseract` n'est pas reconnu juste apres l'installation, ouvre un nouveau terminal PowerShell.
+- Les reglages runtime du script sont charges depuis `yolo_with_stream/config.json`.
+- `fps_limit` dans `yolo_with_stream/config.json` plafonne la boucle principale du script.
+- `detector_fps_limit` dans `yolo_with_stream/config.json` cadence les inferences YOLO pour reduire la charge CPU tout en gardant un affichage fluide.
 
 ## Logs et stats OCR
 

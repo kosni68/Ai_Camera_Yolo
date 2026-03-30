@@ -26,7 +26,7 @@ def initialize_rtsp_stream(rtsp_url):
 class FrameGrabber(threading.Thread):
     """Capture le flux RTSP en tache de fond pour ne pas bloquer l'inference."""
 
-    def __init__(self, rtsp_url, queue_size=3):
+    def __init__(self, rtsp_url, queue_size=1):
         super().__init__(daemon=True)
         self.rtsp_url = rtsp_url
         self.queue = Queue(maxsize=queue_size)
