@@ -18,7 +18,8 @@ from ocr_worker import PlateOcrWorker
 from utils import draw_fps_info, VEHICLE_CLASSES
 
 BASE_DIR = Path(__file__).resolve().parent
-SAVE_DETECTIONS_ENABLED = True
+SAVE_DETECTIONS_ENABLED = False
+DETECTION_SAVE_MIN_CONFIDENCE = 0.50
 DETECTION_SAVE_ROOT = BASE_DIR / "data" / "detections"
 
 
@@ -45,12 +46,16 @@ def _sanitize_label(value):
     return safe or "unknown"
 
 
-def collect_detected_classes(results):
+def collect_detected_classes(results, min_confidence=0.0):
     classes = []
     seen = set()
     names = results.names if hasattr(results, "names") else {}
 
     for box in results.boxes:
+        confidence = float(box.conf[0]) if box.conf is not None else 0.0
+        if confidence < min_confidence:
+            continue
+
         cls_id = int(box.cls[0]) if box.cls is not None else -1
         cls_name = names.get(cls_id, str(cls_id)) if hasattr(names, "get") else str(cls_id)
         normalized = _sanitize_label(str(cls_name))
@@ -121,6 +126,7 @@ def main():
         print(f"[DETECTION] Save mode: {'ON' if SAVE_DETECTIONS_ENABLED else 'OFF'}")
         if SAVE_DETECTIONS_ENABLED:
             print(f"[DETECTION] Save root: {DETECTION_SAVE_ROOT}")
+            print(f"[DETECTION] Min confidence: {DETECTION_SAVE_MIN_CONFIDENCE:.2f}")
 
         ocr_worker = PlateOcrWorker(log_file_path)
         ocr_worker.start()
@@ -144,7 +150,7 @@ def main():
             results = model.predict(frame, imgsz=320, verbose=False)[0]
             annotated_frame = results.plot()
             detection_save_frame = annotated_frame.copy()
-            detected_classes = collect_detected_classes(results)
+            detected_classes = collect_detected_classes(results, DETECTION_SAVE_MIN_CONFIDENCE)
             if SAVE_DETECTIONS_ENABLED and detected_classes:
                 save_detection_frame(detection_save_frame, detected_classes, DETECTION_SAVE_ROOT)
 
