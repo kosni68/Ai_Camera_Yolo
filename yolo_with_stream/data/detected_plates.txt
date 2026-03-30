@@ -8,5 +8,5 @@ ocr_failure_unstable=0
 ocr_failure_empty=0
 ocr_success_rate_pct=0.0
 ocr_failure_rate_pct=0.0
-session_started_at=2026-03-30 20:38:59
+session_started_at=2026-03-30 20:47:04
 active_history_file=history/detected_plates-2026-03-30.txt
