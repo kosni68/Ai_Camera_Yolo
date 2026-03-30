@@ -63,8 +63,12 @@ def main():
 
             results = model.predict(frame, imgsz=320, verbose=False)[0]
             annotated_frame = results.plot()
+            submitted_this_frame = False
 
             for box in results.boxes:
+                if submitted_this_frame or not ocr_worker.ready_for_new_job():
+                    break
+
                 cls_id = int(box.cls[0]) if box.cls is not None else -1
                 cls_name = results.names.get(cls_id, str(cls_id)) if hasattr(results, "names") else str(cls_id)
                 if cls_name.lower() not in VEHICLE_CLASSES:
@@ -82,8 +86,9 @@ def main():
                 if refined_crop.size == 0:
                     continue
 
-                ocr_worker.submit(refined_crop)
-                cv2.imshow("Plate", refined_crop)
+                if ocr_worker.submit(refined_crop):
+                    submitted_this_frame = True
+                    cv2.imshow("Plate", refined_crop)
 
             loop_time = time.time() - start_time
             fps = 1.0 / loop_time if loop_time > 0 else 0.0
