@@ -75,6 +75,11 @@ python_has_ensurepip() {
   "$python_bin" -c 'import ensurepip' >/dev/null 2>&1
 }
 
+python_has_pip() {
+  local python_bin="$1"
+  "$python_bin" -m pip --version >/dev/null 2>&1
+}
+
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 venv_dir="$project_dir/.venv"
 venv_python="$venv_dir/bin/python"
@@ -129,7 +134,12 @@ if [[ -d "$venv_dir" ]]; then
       fail "The existing virtual environment at '$venv_dir' uses Python $venv_version. Remove it manually and rerun this script to recreate it with Python 3.12."
     fi
 
-    create_venv=false
+    if ! python_has_pip "$venv_python"; then
+      write_step "Removing incomplete virtual environment without pip"
+      rm -rf "$venv_dir"
+    else
+      create_venv=false
+    fi
   fi
 fi
 
@@ -141,6 +151,13 @@ if [[ "$create_venv" == true ]]; then
 
   if [[ ! -x "$venv_python" ]]; then
     fail "Failed to create the virtual environment at '$venv_dir'."
+  fi
+fi
+
+if ! python_has_pip "$venv_python"; then
+  write_step "Bootstrapping pip inside the virtual environment"
+  if ! "$venv_python" -m ensurepip --upgrade; then
+    fail "Failed to bootstrap pip inside '$venv_dir'."
   fi
 fi
 
