@@ -1,6 +1,9 @@
 {
   "rtsp_url": "rtsp://192.168.1.196:554/stream1",
   "video_display_enabled": true,
+  "overlay_enabled": true,
+  "ocr_enabled": true,
+  "secondary_plate_detector_enabled": true,
   "save_detections_enabled": true,
   "detection_save_min_confidence": 0.5,
   "detection_save_root": "data/detections",

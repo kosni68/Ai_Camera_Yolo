@@ -23,6 +23,9 @@ CONFIG_PATH = BASE_DIR / "config.json"
 REQUIRED_CONFIG_KEYS = (
     "rtsp_url",
     "video_display_enabled",
+    "overlay_enabled",
+    "ocr_enabled",
+    "secondary_plate_detector_enabled",
     "save_detections_enabled",
     "detection_save_min_confidence",
     "detection_save_root",
@@ -63,6 +66,18 @@ def load_runtime_config(config_path):
     video_display_enabled = raw_config["video_display_enabled"]
     if not isinstance(video_display_enabled, bool):
         raise RuntimeError("Configuration key 'video_display_enabled' must be a boolean.")
+
+    overlay_enabled = raw_config["overlay_enabled"]
+    if not isinstance(overlay_enabled, bool):
+        raise RuntimeError("Configuration key 'overlay_enabled' must be a boolean.")
+
+    ocr_enabled = raw_config["ocr_enabled"]
+    if not isinstance(ocr_enabled, bool):
+        raise RuntimeError("Configuration key 'ocr_enabled' must be a boolean.")
+
+    secondary_plate_detector_enabled = raw_config["secondary_plate_detector_enabled"]
+    if not isinstance(secondary_plate_detector_enabled, bool):
+        raise RuntimeError("Configuration key 'secondary_plate_detector_enabled' must be a boolean.")
 
     save_detections_enabled = raw_config["save_detections_enabled"]
     if not isinstance(save_detections_enabled, bool):
@@ -119,6 +134,9 @@ def load_runtime_config(config_path):
     return {
         "rtsp_url": rtsp_url,
         "video_display_enabled": video_display_enabled,
+        "overlay_enabled": overlay_enabled,
+        "ocr_enabled": ocr_enabled,
+        "secondary_plate_detector_enabled": secondary_plate_detector_enabled,
         "save_detections_enabled": save_detections_enabled,
         "detection_save_min_confidence": detection_save_min_confidence,
         "detection_save_root": detection_save_root,
@@ -156,9 +174,52 @@ def write_fps_summary(summary_path, session_started_at, current_fps, session_min
     atomic_write_text(summary_path, "\n".join(lines) + "\n")
 
 
-def load_models():
-    detector = YOLO(str(BASE_DIR / "models" / "yolov8n_ncnn_model"), task="detect")
-    plate_detector = YOLO(str(BASE_DIR / "models" / "license_plate_detector_ncnn_model"), task="detect")
+def build_default_ocr_stats(session_started_at, log_file_path):
+    return {
+        "current_plate": None,
+        "consecutive_reads": 0,
+        "ocr_jobs_processed": 0,
+        "ocr_success_stabilized": 0,
+        "ocr_failure_total": 0,
+        "ocr_failure_non_french": 0,
+        "ocr_failure_unstable": 0,
+        "ocr_failure_empty": 0,
+        "ocr_success_rate_pct": 0.0,
+        "ocr_failure_rate_pct": 0.0,
+        "session_started_at": session_started_at,
+        "active_history_file": active_history_label(log_file_path),
+    }
+
+
+def write_ocr_summary(log_file_path, stats_info):
+    lines = [
+        f"current_plate={stats_info['current_plate'] or ''}",
+        f"consecutive_reads={stats_info['consecutive_reads']}",
+        f"ocr_jobs_processed={stats_info['ocr_jobs_processed']}",
+        f"ocr_success_stabilized={stats_info['ocr_success_stabilized']}",
+        f"ocr_failure_total={stats_info['ocr_failure_total']}",
+        f"ocr_failure_non_french={stats_info['ocr_failure_non_french']}",
+        f"ocr_failure_unstable={stats_info['ocr_failure_unstable']}",
+        f"ocr_failure_empty={stats_info['ocr_failure_empty']}",
+        f"ocr_success_rate_pct={stats_info['ocr_success_rate_pct']:.1f}",
+        f"ocr_failure_rate_pct={stats_info['ocr_failure_rate_pct']:.1f}",
+        f"session_started_at={stats_info['session_started_at']}",
+        f"active_history_file={stats_info['active_history_file']}",
+    ]
+    atomic_write_text(log_file_path, "\n".join(lines) + "\n")
+
+
+def load_main_detector():
+    return YOLO(str(BASE_DIR / "models" / "yolov8n_ncnn_model"), task="detect")
+
+
+def load_plate_detector():
+    return YOLO(str(BASE_DIR / "models" / "license_plate_detector_ncnn_model"), task="detect")
+
+
+def load_models(load_secondary_detector=True):
+    detector = load_main_detector()
+    plate_detector = load_plate_detector() if load_secondary_detector else None
     return detector, plate_detector
 
 
@@ -250,8 +311,8 @@ def collect_detected_classes(detections, min_confidence=0.0):
     return classes
 
 
-def draw_detected_boxes(frame, detections, roi_pixels=None):
-    annotated = frame.copy()
+def draw_detected_boxes(frame, detections, roi_pixels=None, copy_frame=True):
+    annotated = frame.copy() if copy_frame else frame
     if roi_pixels is not None:
         cv2.rectangle(
             annotated,
@@ -279,6 +340,44 @@ def draw_detected_boxes(frame, detections, roi_pixels=None):
             2,
         )
     return annotated
+
+
+def build_display_frame(
+    frame,
+    detections,
+    roi_pixels,
+    latest_plate_info,
+    stats_info,
+    fps,
+    min_fps,
+    max_fps,
+):
+    annotated_frame = draw_detected_boxes(frame, detections, roi_pixels=roi_pixels)
+
+    if latest_plate_info:
+        latest_plate = latest_plate_info["plate"]
+        consecutive_count = latest_plate_info["consecutive_count"]
+        cv2.putText(
+            annotated_frame,
+            f"Derniere plaque: {latest_plate} (x{consecutive_count})",
+            (30, 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 200, 255),
+            2,
+        )
+
+    cv2.putText(
+        annotated_frame,
+        f"OCR OK: {stats_info['ocr_success_rate_pct']:.1f}% | Echec: {stats_info['ocr_failure_rate_pct']:.1f}% | Jobs: {stats_info['ocr_jobs_processed']}",
+        (30, 85),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (80, 255, 160),
+        2,
+    )
+
+    return draw_fps_info(annotated_frame, fps, min_fps, max_fps)
 
 
 def save_detection_frame(frame, detected_classes, save_root):
@@ -314,16 +413,26 @@ def main():
     session_started_at = current_local_timestamp()
     rtsp_url = config["rtsp_url"]
     video_display_enabled = config["video_display_enabled"]
+    overlay_enabled = config["overlay_enabled"]
+    ocr_enabled = config["ocr_enabled"]
+    secondary_plate_detector_enabled = config["secondary_plate_detector_enabled"]
     save_detections_enabled = config["save_detections_enabled"]
     detection_save_min_confidence = config["detection_save_min_confidence"]
     detection_save_root = config["detection_save_root"]
     detector_fps_limit = config["detector_fps_limit"]
     roi_config = config["roi"]
     fps_limit = config["fps_limit"]
+    default_ocr_stats = build_default_ocr_stats(session_started_at, log_file_path)
 
     print(f"[CONFIG] Loaded {CONFIG_PATH}")
     print(f"[CONFIG] RTSP URL: {rtsp_url}")
     print(f"[CONFIG] Video display: {'ON' if video_display_enabled else 'OFF'}")
+    print(f"[CONFIG] Overlay: {'ON' if overlay_enabled else 'OFF'}")
+    print(f"[CONFIG] OCR: {'ON' if ocr_enabled else 'OFF'}")
+    print(
+        f"[CONFIG] Secondary plate detector: "
+        f"{'ON' if secondary_plate_detector_enabled else 'OFF'}"
+    )
     print(f"[CONFIG] Save detections: {'ON' if save_detections_enabled else 'OFF'}")
     print(f"[CONFIG] FPS limit: {fps_limit:.1f}")
     print(f"[CONFIG] Detector FPS limit: {detector_fps_limit:.1f}")
@@ -338,6 +447,8 @@ def main():
     print("starting RTSP stream...")
     frame_grabber = FrameGrabber(rtsp_url, queue_size=1)
     ocr_worker = None
+    model = None
+    license_plate_detector_model = None
 
     try:
         frame_grabber.start()
@@ -358,13 +469,18 @@ def main():
             raise RuntimeError("Impossible de recuperer une frame initiale depuis le flux RTSP.")
 
         print("Loading YOLO models...")
-        model, license_plate_detector_model = load_models()
+        model = load_main_detector()
+        if ocr_enabled and secondary_plate_detector_enabled:
+            license_plate_detector_model = load_plate_detector()
         if save_detections_enabled:
             print(f"[DETECTION] Save root: {detection_save_root}")
             print(f"[DETECTION] Min confidence: {detection_save_min_confidence:.2f}")
 
-        ocr_worker = PlateOcrWorker(log_file_path)
-        ocr_worker.start()
+        if ocr_enabled:
+            ocr_worker = PlateOcrWorker(log_file_path)
+            ocr_worker.start()
+        else:
+            write_ocr_summary(log_file_path, default_ocr_stats)
 
         fps_history = []
         session_min_fps = 0.0
@@ -388,7 +504,7 @@ def main():
             fresh_detections = []
             roi_pixels = build_roi_pixels(frame, roi_config)
             current_perf = time.perf_counter()
-            if (current_perf - last_detector_run_at) >= detector_interval or not last_detections:
+            if last_detector_run_at == 0.0 or (current_perf - last_detector_run_at) >= detector_interval:
                 detection_frame = crop_frame_to_roi(frame, roi_pixels)
                 results = model.predict(detection_frame, imgsz=320, verbose=False)[0]
                 x_offset = roi_pixels["x1"] if roi_pixels is not None else 0
@@ -410,48 +526,34 @@ def main():
                             detection_save_root,
                         )
 
-            annotated_frame = draw_detected_boxes(frame, last_detections, roi_pixels=roi_pixels)
-
             submitted_this_frame = False
 
-            for detection in fresh_detections:
-                if submitted_this_frame or not ocr_worker.ready_for_new_job():
-                    break
+            if ocr_worker is not None:
+                for detection in fresh_detections:
+                    if submitted_this_frame or not ocr_worker.ready_for_new_job():
+                        break
 
-                if detection["label"] not in VEHICLE_CLASSES:
-                    continue
+                    if detection["label"] not in VEHICLE_CLASSES:
+                        continue
 
-                x1, y1, x2, y2 = detection["x1"], detection["y1"], detection["x2"], detection["y2"]
-                plate_crop = frame[y1:y2, x1:x2]
-                if plate_crop.size == 0:
-                    continue
+                    x1, y1, x2, y2 = detection["x1"], detection["y1"], detection["x2"], detection["y2"]
+                    plate_crop = frame[y1:y2, x1:x2]
+                    if plate_crop.size == 0:
+                        continue
 
-                if video_display_enabled:
-                    cv2.imshow("Cropped Plate", plate_crop)
-
-                refined_crop = analyze_with_second_model(plate_crop, license_plate_detector_model)
-                if refined_crop.size == 0:
-                    continue
-
-                if ocr_worker.submit(refined_crop):
-                    submitted_this_frame = True
                     if video_display_enabled:
-                        cv2.imshow("Plate", refined_crop)
+                        cv2.imshow("Cropped Plate", plate_crop)
 
-            latest_plate_info = ocr_worker.get_latest_plate_info()
-            stats_info = ocr_worker.get_stats_info()
-            if latest_plate_info:
-                latest_plate = latest_plate_info["plate"]
-                consecutive_count = latest_plate_info["consecutive_count"]
-                cv2.putText(
-                    annotated_frame,
-                    f"Derniere plaque: {latest_plate} (x{consecutive_count})",
-                    (30, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0, 200, 255),
-                    2,
-                )
+                    refined_crop = plate_crop
+                    if license_plate_detector_model is not None:
+                        refined_crop = analyze_with_second_model(plate_crop, license_plate_detector_model)
+                        if refined_crop.size == 0:
+                            continue
+
+                    if ocr_worker.submit(refined_crop):
+                        submitted_this_frame = True
+                        if video_display_enabled:
+                            cv2.imshow("Plate", refined_crop)
 
             total_loop_time = apply_fps_limit(loop_started_at, fps_limit)
             fps = 1.0 / total_loop_time if total_loop_time > 0 else 0.0
@@ -484,19 +586,31 @@ def main():
                 )
                 last_fps_summary_time = current_time
 
-            cv2.putText(
-                annotated_frame,
-                f"OCR OK: {stats_info['ocr_success_rate_pct']:.1f}% | Echec: {stats_info['ocr_failure_rate_pct']:.1f}% | Jobs: {stats_info['ocr_jobs_processed']}",
-                (30, 85),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (80, 255, 160),
-                2,
-            )
-
-            annotated_frame = draw_fps_info(annotated_frame, fps, min_fps, max_fps)
             if video_display_enabled:
-                cv2.imshow("Camera", annotated_frame)
+                latest_plate_info = (
+                    ocr_worker.get_latest_plate_info()
+                    if ocr_worker is not None
+                    else None
+                )
+                stats_info = (
+                    ocr_worker.get_stats_info()
+                    if ocr_worker is not None
+                    else default_ocr_stats
+                )
+                camera_frame = frame
+                if overlay_enabled:
+                    camera_frame = build_display_frame(
+                        frame,
+                        last_detections,
+                        roi_pixels,
+                        latest_plate_info,
+                        stats_info,
+                        fps,
+                        min_fps,
+                        max_fps,
+                    )
+
+                cv2.imshow("Camera", camera_frame)
 
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break

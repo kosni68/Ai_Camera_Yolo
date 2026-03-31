@@ -1,4 +1,3 @@
 __pycache__
 yolo_with_stream/.venv/
-yolo_with_stream/data/history/
-yolo_with_stream/data/detections/
+yolo_with_stream/data/*

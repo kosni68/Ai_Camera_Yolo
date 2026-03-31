@@ -243,32 +243,52 @@ class PlateOcrWorker(threading.Thread):
         self.ocr_failure_non_french = 0
         self.ocr_failure_unstable = 0
         self.ocr_failure_empty = 0
-        self.tesseract_path = configure_tesseract()
-        self.easyocr_reader = create_easyocr_reader()
-        self.ocr_available = self.easyocr_reader is not None or self.tesseract_path is not None
-
-        if self.easyocr_reader is not None:
-            print("[OCR] EasyOCR active")
-        if self.tesseract_path:
-            print(f"[OCR] Using Tesseract at {self.tesseract_path}")
-        if not self.ocr_available:
-            print("[OCR] Tesseract introuvable. Definis TESSERACT_CMD ou relance setup_env.ps1.")
+        self.tesseract_path = None
+        self.easyocr_reader = None
+        self.ocr_available = True
+        self.ocr_initialized = False
+        self.ocr_init_lock = threading.Lock()
 
         self._write_compact_log()
+
+    def _ensure_ocr_initialized(self):
+        if self.ocr_initialized:
+            return self.ocr_available
+
+        with self.ocr_init_lock:
+            if self.ocr_initialized:
+                return self.ocr_available
+
+            self.tesseract_path = configure_tesseract()
+            self.easyocr_reader = create_easyocr_reader()
+            self.ocr_available = self.easyocr_reader is not None or self.tesseract_path is not None
+            self.ocr_initialized = True
+
+            if self.easyocr_reader is not None:
+                print("[OCR] EasyOCR active")
+            if self.tesseract_path:
+                print(f"[OCR] Using Tesseract at {self.tesseract_path}")
+            if not self.ocr_available:
+                print("[OCR] Tesseract introuvable. Definis TESSERACT_CMD ou relance setup_env.ps1.")
+
+        return self.ocr_available
 
     def _compute_signature(self, crop):
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         return cv2.resize(gray, (32, 12), interpolation=cv2.INTER_AREA)
 
     def ready_for_new_job(self):
-        if not self.ocr_available:
+        if self.ocr_initialized and not self.ocr_available:
             return False
         if self.queue.qsize() > 0:
             return False
         return (time.time() - self.last_submit_time) >= self.submit_interval_sec
 
     def submit(self, crop):
-        if not self.ocr_available or crop is None or crop.size == 0:
+        if crop is None or crop.size == 0:
+            return False
+
+        if self.ocr_initialized and not self.ocr_available:
             return False
 
         now = time.time()
@@ -492,13 +512,13 @@ class PlateOcrWorker(threading.Thread):
             return dict(self.latest_plate_info)
 
     def run(self):
-        if not self.ocr_available:
-            return
-
         while not self.stop_event.is_set():
             try:
                 crop = self.queue.get(timeout=0.2)
             except Empty:
+                continue
+
+            if not self._ensure_ocr_initialized():
                 continue
 
             result = None

@@ -185,9 +185,41 @@ Notes utiles :
 - Si `tesseract` n'est pas reconnu juste apres l'installation, ouvre un nouveau terminal PowerShell.
 - Les reglages runtime du script sont charges depuis `yolo_with_stream/config.json`.
 - `video_display_enabled` dans `yolo_with_stream/config.json` active ou coupe toutes les fenetres OpenCV du script.
+- `overlay_enabled` coupe les overlays 4K du flux principal quand tu veux mesurer uniquement la detection sans dessin.
+- `ocr_enabled` active ou coupe tout le pipeline OCR.
+- `secondary_plate_detector_enabled` active ou coupe le second modele YOLO qui affine le crop plaque avant OCR.
 - `fps_limit` dans `yolo_with_stream/config.json` plafonne la boucle principale du script.
 - `detector_fps_limit` dans `yolo_with_stream/config.json` cadence les inferences YOLO pour reduire la charge CPU tout en gardant un affichage fluide.
 - `roi_enabled`, `roi_x`, `roi_y`, `roi_width` et `roi_height` dans `yolo_with_stream/config.json` permettent de limiter l'analyse du modele principal a une zone rectangulaire normalisee.
+
+## Benchmark CPU RTSP live
+
+Depuis la racine du repo :
+
+```powershell
+.\yolo_with_stream\.venv\Scripts\Activate.ps1
+python .\yolo_with_stream\benchmark_rtsp.py --duration 10 --warmup 3
+```
+
+Options utiles :
+
+- `--scenarios capture_only overlay_only detector_baseline detector_no_roi detector_low_rate_2fps save_frame_cost plate_pipeline`
+- `--output-dir .\yolo_with_stream\data\benchmarks\mon-run`
+
+Sorties :
+
+- un tableau console avec `status`, `wall_fps`, `process_cpu_pct`, `detector_runs`, `vehicle_crops`, `ocr_jobs`, `files_written`
+- un resume JSON dans `yolo_with_stream/data/benchmarks/<timestamp>/summary.json`
+
+Definition rapide des scenarios :
+
+- `capture_only` : flux RTSP seul, sans YOLO ni OCR
+- `overlay_only` : copie/overlay 4K, sans YOLO ni OCR
+- `detector_baseline` : detecteur principal avec la config courante
+- `detector_no_roi` : meme detecteur avec ROI desactive
+- `detector_low_rate_2fps` : detecteur principal limite a 2 FPS
+- `save_frame_cost` : sauvegarde JPEG forcee pour mesurer le cout I/O
+- `plate_pipeline` : detecteur principal + second detecteur plaque + OCR, avec statut `skipped_no_vehicle_crop` s'il n'y a pas de vehicule exploitable pendant la mesure
 
 ## Logs et stats OCR
 
