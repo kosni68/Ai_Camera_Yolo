@@ -73,17 +73,52 @@ def prepare_display_frame(frame, display_width, display_height):
     return cv2.resize(frame, (resized_width, resized_height), interpolation=cv2.INTER_AREA)
 
 
+def configure_cpu_runtime():
+    using_gpu = torch.cuda.is_available()
+    runtime_config = {
+        "use_gpu": using_gpu,
+        "easyocr_quantize": using_gpu,
+        "nnpack_disabled": False,
+    }
+
+    if using_gpu:
+        return runtime_config
+
+    try:
+        torch.backends.nnpack.set_flags(False)
+        runtime_config["nnpack_disabled"] = True
+    except Exception:
+        runtime_config["nnpack_disabled"] = False
+
+    return runtime_config
+
+
 class ANPR:
     """Automatic Number Plate Recognition using Ultralytics YOLO and EasyOCR."""
 
     def __init__(self, model_path=MODEL_PATH):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        runtime_config = configure_cpu_runtime()
+        self.use_gpu = runtime_config["use_gpu"]
+        self.ocr_quantize_enabled = runtime_config["easyocr_quantize"]
+        self.nnpack_disabled = runtime_config["nnpack_disabled"]
+        self.device = torch.device("cuda" if self.use_gpu else "cpu")
         model_path = Path(model_path)
         if not model_path.exists():
             raise RuntimeError(f"Modele introuvable : {model_path}")
 
+        if not self.use_gpu:
+            print(
+                "[RUNTIME] CPU compatibility mode enabled: "
+                f"EasyOCR quantization={'OFF' if not self.ocr_quantize_enabled else 'ON'}, "
+                f"NNPACK={'OFF' if self.nnpack_disabled else 'UNCHANGED'}."
+            )
+
         self.model = YOLO(str(model_path))
-        self.reader = easyocr.Reader(["en"], gpu=torch.cuda.is_available())
+        self.reader = easyocr.Reader(
+            ["en"],
+            gpu=self.use_gpu,
+            quantize=self.ocr_quantize_enabled,
+        )
 
     def detect_plates(self, im0: np.ndarray):
         """Detects license plates in an image."""
