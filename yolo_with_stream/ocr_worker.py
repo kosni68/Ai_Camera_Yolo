@@ -269,7 +269,7 @@ class PlateOcrWorker(threading.Thread):
             if self.tesseract_path:
                 print(f"[OCR] Using Tesseract at {self.tesseract_path}")
             if not self.ocr_available:
-                print("[OCR] Tesseract introuvable. Definis TESSERACT_CMD ou relance setup_env.ps1.")
+                print("[OCR] Tesseract introuvable. Definis TESSERACT_CMD ou relance setup_env.ps1/setup_env.sh.")
 
         return self.ocr_available
 

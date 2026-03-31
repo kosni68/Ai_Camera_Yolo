@@ -192,6 +192,34 @@ Notes utiles :
 - `detector_fps_limit` dans `yolo_with_stream/config.json` cadence les inferences YOLO pour reduire la charge CPU tout en gardant un affichage fluide.
 - `roi_enabled`, `roi_x`, `roi_y`, `roi_width` et `roi_height` dans `yolo_with_stream/config.json` permettent de limiter l'analyse du modele principal a une zone rectangulaire normalisee.
 
+## Ubuntu setup pour `yolo_with_stream`
+
+Pour preparer l'environnement Ubuntu et lancer la detection de plaques, execute ces commandes depuis la racine du repo :
+
+```bash
+chmod +x ./yolo_with_stream/setup_env.sh
+./yolo_with_stream/setup_env.sh
+source ./yolo_with_stream/.venv/bin/activate
+python ./yolo_with_stream/plate_recognition_tesseract.py
+```
+
+Si tu es deja dans le dossier `yolo_with_stream`, utilise plutot :
+
+```bash
+chmod +x ./setup_env.sh
+./setup_env.sh
+source ./.venv/bin/activate
+python ./plate_recognition_tesseract.py
+```
+
+Notes utiles :
+
+- Le script cree ou reutilise `yolo_with_stream/.venv`.
+- Python 3.12 est requis.
+- Le script installe automatiquement `tesseract-ocr` et les bibliotheques systeme OpenCV utiles via `apt-get`.
+- Sur une machine Ubuntu sans interface graphique, mets `video_display_enabled` a `false` dans `yolo_with_stream/config.json`.
+- Pour installer les dependances optionnelles EasyOCR : `python -m pip install -r ./yolo_with_stream/requirements-optional.txt`
+
 ## Benchmark CPU RTSP live
 
 Depuis la racine du repo :
