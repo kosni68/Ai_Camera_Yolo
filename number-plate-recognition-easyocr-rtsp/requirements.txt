@@ -1,0 +1,5 @@
+ultralytics==8.3.107
+opencv-python==4.11.0.86
+easyocr==1.7.2
+torch==2.6.0
+numpy==1.26.4
