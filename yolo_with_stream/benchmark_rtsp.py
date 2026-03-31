@@ -9,7 +9,7 @@ import cv2
 
 from capture import FrameGrabber
 from detection import analyze_with_second_model
-from ocr_worker import configure_tesseract, create_easyocr_reader, run_easyocr_ocr, run_tesseract_ocr
+from ocr_worker import build_ocr_runtime_options, initialize_ocr_backend, run_ocr
 from plate_recognition_tesseract import (
     BASE_DIR,
     CONFIG_PATH,
@@ -193,28 +193,25 @@ def run_main_detector(frame, state, result, record):
     return fresh_detections, roi_pixels
 
 
-def create_ocr_backend():
-    tesseract_path = configure_tesseract()
-    easyocr_reader = create_easyocr_reader()
+def create_ocr_backend(config):
+    runtime_options = build_ocr_runtime_options(config["ocr_fast_mode_enabled"])
+    easyocr_reader, tesseract_path = initialize_ocr_backend(runtime_options)
     if easyocr_reader is None and tesseract_path is None:
         raise RuntimeError("Aucun backend OCR disponible (EasyOCR/Tesseract).")
     return {
         "tesseract_path": tesseract_path,
         "easyocr_reader": easyocr_reader,
+        "runtime_options": runtime_options,
     }
 
 
 def run_ocr_backend(image, ocr_backend):
-    easyocr_reader = ocr_backend["easyocr_reader"]
-    if easyocr_reader is not None:
-        result = run_easyocr_ocr(image, easyocr_reader)
-        if result is not None:
-            return result
-
-    if ocr_backend["tesseract_path"] is not None:
-        return run_tesseract_ocr(image)
-
-    return None
+    return run_ocr(
+        image,
+        easyocr_reader=ocr_backend["easyocr_reader"],
+        tesseract_path=ocr_backend["tesseract_path"],
+        runtime_options=ocr_backend["runtime_options"],
+    )
 
 
 def process_capture_only(frame, state, result, record):
@@ -342,7 +339,7 @@ def build_scenario_state(name, base_config, run_output_dir):
     if name == "plate_pipeline":
         state = make_detector_state(config)
         state["plate_detector"] = load_plate_detector()
-        state["ocr_backend"] = create_ocr_backend()
+        state["ocr_backend"] = create_ocr_backend(config)
         state["second_detector_times_ms"] = []
         state["ocr_times_ms"] = []
         return config, state, process_plate_pipeline

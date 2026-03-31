@@ -37,6 +37,12 @@ TESSERACT_CONFIGS = (
 )
 
 EASYOCR_ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+QUALITY_EASYOCR_VARIANT_NAMES = ("rectified", "text")
+FAST_EASYOCR_VARIANT_NAMES = ("text",)
+QUALITY_TESSERACT_VARIANT_NAMES = ("gray", "sharpened", "otsu", "adaptive", "inverse")
+FAST_TESSERACT_VARIANT_NAMES = ("gray", "otsu")
+QUALITY_TESSERACT_CONFIG_NAMES = tuple(name for name, _ in TESSERACT_CONFIGS)
+FAST_TESSERACT_CONFIG_NAMES = ("line",)
 
 
 def resolve_tesseract_path():
@@ -86,6 +92,36 @@ def create_easyocr_reader():
         return None
 
 
+def build_ocr_runtime_options(fast_mode_enabled=False):
+    if fast_mode_enabled:
+        return {
+            "profile": "fast",
+            "easyocr_variant_names": FAST_EASYOCR_VARIANT_NAMES,
+            "tesseract_variant_names": FAST_TESSERACT_VARIANT_NAMES,
+            "tesseract_config_names": FAST_TESSERACT_CONFIG_NAMES,
+            "allow_tesseract_fallback": False,
+        }
+
+    return {
+        "profile": "quality",
+        "easyocr_variant_names": QUALITY_EASYOCR_VARIANT_NAMES,
+        "tesseract_variant_names": QUALITY_TESSERACT_VARIANT_NAMES,
+        "tesseract_config_names": QUALITY_TESSERACT_CONFIG_NAMES,
+        "allow_tesseract_fallback": True,
+    }
+
+
+def initialize_ocr_backend(runtime_options=None):
+    runtime_options = runtime_options or build_ocr_runtime_options()
+    easyocr_reader = create_easyocr_reader()
+    tesseract_path = None
+
+    if easyocr_reader is None or runtime_options["allow_tesseract_fallback"]:
+        tesseract_path = configure_tesseract()
+
+    return easyocr_reader, tesseract_path
+
+
 def _build_candidate(raw_text, score, backend, char_scores=None, source=""):
     clean_text = normalize_ocr_text(raw_text)
     if not clean_text:
@@ -111,11 +147,19 @@ def _build_candidate(raw_text, score, backend, char_scores=None, source=""):
     }
 
 
-def run_easyocr_ocr(image, reader):
+def run_easyocr_ocr(image, reader, variant_names=None):
+    variant_names = variant_names or QUALITY_EASYOCR_VARIANT_NAMES
     rectified_plate, text_region = prepare_plate_for_ocr(image)
     candidates = []
+    variants = {
+        "rectified": rectified_plate,
+        "text": text_region,
+    }
 
-    for variant_name, variant in (("rectified", rectified_plate), ("text", text_region)):
+    for variant_name in variant_names:
+        variant = variants.get(variant_name)
+        if variant is None or variant.size == 0:
+            continue
         results = reader.readtext(
             variant,
             detail=1,
@@ -174,12 +218,19 @@ def run_easyocr_ocr(image, reader):
     return None
 
 
-def run_tesseract_ocr(image):
+def run_tesseract_ocr(image, variant_names=None, config_names=None):
+    variant_names = variant_names or QUALITY_TESSERACT_VARIANT_NAMES
+    config_names = config_names or QUALITY_TESSERACT_CONFIG_NAMES
     attempts = []
     best_candidate = None
+    selected_config_names = set(config_names)
 
     for variant_name, variant in build_ocr_variants(image):
+        if variant_name not in variant_names:
+            continue
         for config_name, config in TESSERACT_CONFIGS:
+            if config_name not in selected_config_names:
+                continue
             text = pytesseract.image_to_string(variant, config=config).strip()
             candidate = _build_candidate(
                 text,
@@ -204,19 +255,41 @@ def run_tesseract_ocr(image):
     return best_candidate
 
 
-def run_ocr(image, easyocr_reader=None):
+def run_ocr(image, easyocr_reader=None, tesseract_path=None, runtime_options=None):
+    runtime_options = runtime_options or build_ocr_runtime_options()
+
     if easyocr_reader is not None:
-        result = run_easyocr_ocr(image, easyocr_reader)
+        result = run_easyocr_ocr(
+            image,
+            easyocr_reader,
+            variant_names=runtime_options["easyocr_variant_names"],
+        )
         if result is not None:
             return result
+        if not runtime_options["allow_tesseract_fallback"]:
+            return None
 
-    return run_tesseract_ocr(image)
+    if tesseract_path is None:
+        return None
+
+    return run_tesseract_ocr(
+        image,
+        variant_names=runtime_options["tesseract_variant_names"],
+        config_names=runtime_options["tesseract_config_names"],
+    )
 
 
 class PlateOcrWorker(threading.Thread):
     """Traite l'OCR en asynchrone pour ne pas bloquer l'inference principale."""
 
-    def __init__(self, log_file_path, queue_size=5):
+    def __init__(
+        self,
+        log_file_path,
+        queue_size=5,
+        fast_mode_enabled=False,
+        submit_interval_sec=0.35,
+        same_crop_retry_sec=1.0,
+    ):
         super().__init__(daemon=True)
         self.queue = Queue(maxsize=queue_size)
         self.stop_event = threading.Event()
@@ -229,8 +302,8 @@ class PlateOcrWorker(threading.Thread):
         self.recent_candidates = deque(maxlen=10)
         self.last_submit_time = 0.0
         self.last_signature = None
-        self.submit_interval_sec = 0.35
-        self.same_crop_retry_sec = 1.0
+        self.submit_interval_sec = float(submit_interval_sec)
+        self.same_crop_retry_sec = float(same_crop_retry_sec)
         self.signature_diff_threshold = 2.0
         self.plate_history_interval_sec = 30.0
         self.last_history_plate = None
@@ -248,6 +321,12 @@ class PlateOcrWorker(threading.Thread):
         self.ocr_available = True
         self.ocr_initialized = False
         self.ocr_init_lock = threading.Lock()
+        self.runtime_options = build_ocr_runtime_options(fast_mode_enabled=fast_mode_enabled)
+
+        if self.submit_interval_sec <= 0.0:
+            raise ValueError("submit_interval_sec must be greater than 0.")
+        if self.same_crop_retry_sec <= 0.0:
+            raise ValueError("same_crop_retry_sec must be greater than 0.")
 
         self._write_compact_log()
 
@@ -259,11 +338,11 @@ class PlateOcrWorker(threading.Thread):
             if self.ocr_initialized:
                 return self.ocr_available
 
-            self.tesseract_path = configure_tesseract()
-            self.easyocr_reader = create_easyocr_reader()
+            self.easyocr_reader, self.tesseract_path = initialize_ocr_backend(self.runtime_options)
             self.ocr_available = self.easyocr_reader is not None or self.tesseract_path is not None
             self.ocr_initialized = True
 
+            print(f"[OCR] Profile: {self.runtime_options['profile']}")
             if self.easyocr_reader is not None:
                 print("[OCR] EasyOCR active")
             if self.tesseract_path:
@@ -523,7 +602,12 @@ class PlateOcrWorker(threading.Thread):
 
             result = None
             try:
-                result = run_ocr(crop, self.easyocr_reader)
+                result = run_ocr(
+                    crop,
+                    easyocr_reader=self.easyocr_reader,
+                    tesseract_path=self.tesseract_path,
+                    runtime_options=self.runtime_options,
+                )
             except TesseractNotFoundError:
                 print("[OCR] Tesseract est installe mais n'a pas pu etre lance. Verifie le PATH ou TESSERACT_CMD.")
                 if self.easyocr_reader is None:

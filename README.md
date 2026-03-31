@@ -187,6 +187,9 @@ Notes utiles :
 - `video_display_enabled` dans `yolo_with_stream/config.json` active ou coupe toutes les fenetres OpenCV du script.
 - `overlay_enabled` coupe les overlays 4K du flux principal quand tu veux mesurer uniquement la detection sans dessin.
 - `ocr_enabled` active ou coupe tout le pipeline OCR.
+- `ocr_fast_mode_enabled` active un profil OCR plus leger : EasyOCR prioritaire, sans fallback Tesseract si EasyOCR est present, avec moins de variantes OCR.
+- `ocr_submit_interval_sec` espace les jobs OCR pour eviter de retraiter trop souvent la meme scene.
+- `ocr_same_crop_retry_sec` retarde les retries quand le crop plaque change tres peu.
 - `secondary_plate_detector_enabled` active ou coupe le second modele YOLO qui affine le crop plaque avant OCR.
 - `fps_limit` dans `yolo_with_stream/config.json` plafonne la boucle principale du script.
 - `detector_fps_limit` dans `yolo_with_stream/config.json` cadence les inferences YOLO pour reduire la charge CPU tout en gardant un affichage fluide.

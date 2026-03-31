@@ -27,6 +27,9 @@ REQUIRED_CONFIG_KEYS = (
     "video_display_enabled",
     "overlay_enabled",
     "ocr_enabled",
+    "ocr_fast_mode_enabled",
+    "ocr_submit_interval_sec",
+    "ocr_same_crop_retry_sec",
     "secondary_plate_detector_enabled",
     "save_detections_enabled",
     "detection_save_min_confidence",
@@ -77,6 +80,10 @@ def load_runtime_config(config_path):
     if not isinstance(ocr_enabled, bool):
         raise RuntimeError("Configuration key 'ocr_enabled' must be a boolean.")
 
+    ocr_fast_mode_enabled = raw_config["ocr_fast_mode_enabled"]
+    if not isinstance(ocr_fast_mode_enabled, bool):
+        raise RuntimeError("Configuration key 'ocr_fast_mode_enabled' must be a boolean.")
+
     secondary_plate_detector_enabled = raw_config["secondary_plate_detector_enabled"]
     if not isinstance(secondary_plate_detector_enabled, bool):
         raise RuntimeError("Configuration key 'secondary_plate_detector_enabled' must be a boolean.")
@@ -99,6 +106,8 @@ def load_runtime_config(config_path):
         fps_log_interval = float(raw_config["fps_log_interval"])
         fps_summary_interval = float(raw_config["fps_summary_interval"])
         detector_fps_limit = float(raw_config.get("detector_fps_limit", min(fps_limit, 10.0)))
+        ocr_submit_interval_sec = float(raw_config["ocr_submit_interval_sec"])
+        ocr_same_crop_retry_sec = float(raw_config["ocr_same_crop_retry_sec"])
         roi_x = float(raw_config["roi_x"])
         roi_y = float(raw_config["roi_y"])
         roi_width = float(raw_config["roi_width"])
@@ -107,6 +116,7 @@ def load_runtime_config(config_path):
         raise RuntimeError(
             "Configuration keys 'detection_save_min_confidence', 'fps_limit', "
             "'fps_log_interval', 'fps_summary_interval', 'detector_fps_limit', "
+            "'ocr_submit_interval_sec', 'ocr_same_crop_retry_sec', "
             "'roi_x', 'roi_y', 'roi_width', and 'roi_height' must be numeric."
         ) from exc
 
@@ -114,6 +124,10 @@ def load_runtime_config(config_path):
         raise RuntimeError("Configuration key 'fps_limit' must be greater than 0.")
     if detector_fps_limit <= 0:
         raise RuntimeError("Configuration key 'detector_fps_limit' must be greater than 0.")
+    if ocr_submit_interval_sec <= 0:
+        raise RuntimeError("Configuration key 'ocr_submit_interval_sec' must be greater than 0.")
+    if ocr_same_crop_retry_sec <= 0:
+        raise RuntimeError("Configuration key 'ocr_same_crop_retry_sec' must be greater than 0.")
     for key, value in (
         ("roi_x", roi_x),
         ("roi_y", roi_y),
@@ -138,6 +152,9 @@ def load_runtime_config(config_path):
         "video_display_enabled": video_display_enabled,
         "overlay_enabled": overlay_enabled,
         "ocr_enabled": ocr_enabled,
+        "ocr_fast_mode_enabled": ocr_fast_mode_enabled,
+        "ocr_submit_interval_sec": ocr_submit_interval_sec,
+        "ocr_same_crop_retry_sec": ocr_same_crop_retry_sec,
         "secondary_plate_detector_enabled": secondary_plate_detector_enabled,
         "save_detections_enabled": save_detections_enabled,
         "detection_save_min_confidence": detection_save_min_confidence,
@@ -439,6 +456,9 @@ def main():
     video_display_enabled = config["video_display_enabled"]
     overlay_enabled = config["overlay_enabled"]
     ocr_enabled = config["ocr_enabled"]
+    ocr_fast_mode_enabled = config["ocr_fast_mode_enabled"]
+    ocr_submit_interval_sec = config["ocr_submit_interval_sec"]
+    ocr_same_crop_retry_sec = config["ocr_same_crop_retry_sec"]
     secondary_plate_detector_enabled = config["secondary_plate_detector_enabled"]
     save_detections_enabled = config["save_detections_enabled"]
     detection_save_min_confidence = config["detection_save_min_confidence"]
@@ -453,6 +473,12 @@ def main():
     print(f"[CONFIG] Video display: {'ON' if video_display_enabled else 'OFF'}")
     print(f"[CONFIG] Overlay: {'ON' if overlay_enabled else 'OFF'}")
     print(f"[CONFIG] OCR: {'ON' if ocr_enabled else 'OFF'}")
+    if ocr_enabled:
+        print(f"[CONFIG] OCR fast mode: {'ON' if ocr_fast_mode_enabled else 'OFF'}")
+        print(
+            f"[CONFIG] OCR cadence: submit={ocr_submit_interval_sec:.2f}s "
+            f"same-crop-retry={ocr_same_crop_retry_sec:.2f}s"
+        )
     print(
         f"[CONFIG] Secondary plate detector: "
         f"{'ON' if secondary_plate_detector_enabled else 'OFF'}"
@@ -501,7 +527,12 @@ def main():
             print(f"[DETECTION] Min confidence: {detection_save_min_confidence:.2f}")
 
         if ocr_enabled:
-            ocr_worker = PlateOcrWorker(log_file_path)
+            ocr_worker = PlateOcrWorker(
+                log_file_path,
+                fast_mode_enabled=ocr_fast_mode_enabled,
+                submit_interval_sec=ocr_submit_interval_sec,
+                same_crop_retry_sec=ocr_same_crop_retry_sec,
+            )
             ocr_worker.start()
         else:
             write_ocr_summary(log_file_path, default_ocr_stats)
