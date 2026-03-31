@@ -70,6 +70,11 @@ resolve_python312() {
   return 1
 }
 
+python_has_ensurepip() {
+  local python_bin="$1"
+  "$python_bin" -c 'import ensurepip' >/dev/null 2>&1
+}
+
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 venv_dir="$project_dir/.venv"
 venv_python="$venv_dir/bin/python"
@@ -96,29 +101,39 @@ fi
 
 echo "Using Python 3.12 at $python312_path"
 
-if ! "$python312_path" -m venv --help >/dev/null 2>&1; then
+if ! python_has_ensurepip "$python312_path"; then
   ensure_apt_packages python3.12-venv
+fi
+
+if ! python_has_ensurepip "$python312_path"; then
+  fail "Python 3.12 was found, but ensurepip is missing. Install 'python3.12-venv', then rerun this script."
 fi
 
 write_step "Checking Tesseract OCR and OpenCV system libraries"
 ensure_apt_packages tesseract-ocr libgl1 libglib2.0-0 libgomp1 libgtk-3-0
 
+create_venv=true
 if [[ -d "$venv_dir" ]]; then
   write_step "Reusing existing virtual environment"
 
   if [[ ! -x "$venv_python" ]]; then
-    fail "The existing virtual environment at '$venv_dir' is incomplete. Remove it manually and rerun this script."
-  fi
+    write_step "Removing incomplete virtual environment"
+    rm -rf "$venv_dir"
+  else
+    venv_version="$("$venv_python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
+    if [[ -z "$venv_version" ]]; then
+      fail "Could not inspect the existing virtual environment at '$venv_dir'."
+    fi
 
-  venv_version="$("$venv_python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
-  if [[ -z "$venv_version" ]]; then
-    fail "Could not inspect the existing virtual environment at '$venv_dir'."
-  fi
+    if [[ "$venv_version" != "3.12" ]]; then
+      fail "The existing virtual environment at '$venv_dir' uses Python $venv_version. Remove it manually and rerun this script to recreate it with Python 3.12."
+    fi
 
-  if [[ "$venv_version" != "3.12" ]]; then
-    fail "The existing virtual environment at '$venv_dir' uses Python $venv_version. Remove it manually and rerun this script to recreate it with Python 3.12."
+    create_venv=false
   fi
-else
+fi
+
+if [[ "$create_venv" == true ]]; then
   write_step "Creating virtual environment"
   if ! "$python312_path" -m venv "$venv_dir"; then
     fail "Failed to create the virtual environment at '$venv_dir'."
