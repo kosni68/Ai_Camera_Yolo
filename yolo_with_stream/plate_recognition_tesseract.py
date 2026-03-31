@@ -1,4 +1,6 @@
 import json
+import os
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -152,6 +154,28 @@ def load_runtime_config(config_path):
         "fps_log_interval": fps_log_interval,
         "fps_summary_interval": fps_summary_interval,
     }
+
+
+def display_server_available():
+    if os.name == "nt" or sys.platform == "darwin":
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def adapt_runtime_config_for_environment(config):
+    adjusted_config = dict(config)
+    adjusted_config["roi"] = dict(config["roi"])
+
+    if adjusted_config["video_display_enabled"] and not display_server_available():
+        adjusted_config["video_display_enabled"] = False
+        adjusted_config["overlay_enabled"] = False
+        print(
+            "[CONFIG] No graphical display detected "
+            "(DISPLAY/WAYLAND_DISPLAY missing). "
+            "Disabling OpenCV windows and overlays for this run."
+        )
+
+    return adjusted_config
 
 
 def apply_fps_limit(loop_started_at, fps_limit):
@@ -404,7 +428,7 @@ def save_detection_frame(frame, detected_classes, save_root):
 
 
 def main():
-    config = load_runtime_config(CONFIG_PATH)
+    config = adapt_runtime_config_for_environment(load_runtime_config(CONFIG_PATH))
 
     log_file_path = BASE_DIR / "data" / "detected_plates.txt"
     fps_log_file_path = BASE_DIR / "data" / "fps_stats.txt"

@@ -218,6 +218,7 @@ Notes utiles :
 - Python 3.12 est requis.
 - Le script installe automatiquement `tesseract-ocr` et les bibliotheques systeme OpenCV utiles via `apt-get`.
 - Sur une machine Ubuntu sans interface graphique, mets `video_display_enabled` a `false` dans `yolo_with_stream/config.json`.
+- Si `video_display_enabled` reste a `true` sur un Linux sans `DISPLAY` ni `WAYLAND_DISPLAY`, le script desactive maintenant automatiquement les fenetres OpenCV et les overlays pour la session en cours.
 - Pour installer les dependances optionnelles EasyOCR : `python -m pip install -r ./yolo_with_stream/requirements-optional.txt`
 
 ## Benchmark CPU RTSP live
