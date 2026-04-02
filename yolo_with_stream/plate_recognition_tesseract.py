@@ -31,6 +31,7 @@ REQUIRED_CONFIG_KEYS = (
     "ocr_submit_interval_sec",
     "ocr_same_crop_retry_sec",
     "secondary_plate_detector_enabled",
+    "secondary_plate_detector_model_path",
     "save_detections_enabled",
     "detection_save_min_confidence",
     "detection_save_root",
@@ -147,6 +148,14 @@ def load_runtime_config(config_path):
     if not isinstance(secondary_plate_detector_enabled, bool):
         raise RuntimeError("Configuration key 'secondary_plate_detector_enabled' must be a boolean.")
 
+    secondary_plate_detector_model_path_value = str(
+        raw_config["secondary_plate_detector_model_path"]
+    ).strip()
+    if not secondary_plate_detector_model_path_value:
+        raise RuntimeError(
+            "Configuration key 'secondary_plate_detector_model_path' must not be empty."
+        )
+
     save_detections_enabled = raw_config["save_detections_enabled"]
     if not isinstance(save_detections_enabled, bool):
         raise RuntimeError("Configuration key 'save_detections_enabled' must be a boolean.")
@@ -231,6 +240,12 @@ def load_runtime_config(config_path):
     if not detection_save_root.is_absolute():
         detection_save_root = config_path.parent / detection_save_root
 
+    secondary_plate_detector_model_path = Path(secondary_plate_detector_model_path_value)
+    if not secondary_plate_detector_model_path.is_absolute():
+        secondary_plate_detector_model_path = (
+            config_path.parent / secondary_plate_detector_model_path
+        )
+
     effective_detector_fps_limit = min(detector_fps_limit, fps_limit)
     detector_interval = 1.0 / effective_detector_fps_limit
 
@@ -243,6 +258,7 @@ def load_runtime_config(config_path):
         "ocr_submit_interval_sec": ocr_submit_interval_sec,
         "ocr_same_crop_retry_sec": ocr_same_crop_retry_sec,
         "secondary_plate_detector_enabled": secondary_plate_detector_enabled,
+        "secondary_plate_detector_model_path": secondary_plate_detector_model_path,
         "save_detections_enabled": save_detections_enabled,
         "detection_save_min_confidence": detection_save_min_confidence,
         "detection_save_root": detection_save_root,
@@ -353,13 +369,20 @@ def load_main_detector():
     return YOLO(str(BASE_DIR / "models" / "yolov8n_ncnn_model"), task="detect")
 
 
-def load_plate_detector():
-    return YOLO(str(BASE_DIR / "models" / "license_plate_detector_ncnn_model"), task="detect")
+def load_plate_detector(model_path):
+    model_path = Path(model_path)
+    if not model_path.exists():
+        raise RuntimeError(f"Secondary plate detector model not found: {model_path}")
+    return YOLO(str(model_path), task="detect")
 
 
-def load_models(load_secondary_detector=True):
+def load_models(load_secondary_detector=True, plate_detector_model_path=None):
     detector = load_main_detector()
-    plate_detector = load_plate_detector() if load_secondary_detector else None
+    plate_detector = None
+    if load_secondary_detector:
+        if plate_detector_model_path is None:
+            raise RuntimeError("Secondary plate detector model path is required.")
+        plate_detector = load_plate_detector(plate_detector_model_path)
     return detector, plate_detector
 
 
@@ -563,6 +586,7 @@ def main():
     ocr_submit_interval_sec = config["ocr_submit_interval_sec"]
     ocr_same_crop_retry_sec = config["ocr_same_crop_retry_sec"]
     secondary_plate_detector_enabled = config["secondary_plate_detector_enabled"]
+    secondary_plate_detector_model_path = config["secondary_plate_detector_model_path"]
     save_detections_enabled = config["save_detections_enabled"]
     detection_save_min_confidence = config["detection_save_min_confidence"]
     detection_save_root = config["detection_save_root"]
@@ -587,6 +611,7 @@ def main():
         f"[CONFIG] Secondary plate detector: "
         f"{'ON' if secondary_plate_detector_enabled else 'OFF'}"
     )
+    print(f"[CONFIG] Secondary plate detector model: {secondary_plate_detector_model_path}")
     print(f"[CONFIG] Save detections: {'ON' if save_detections_enabled else 'OFF'}")
     print(f"[CONFIG] FPS limit: {fps_limit:.1f}")
     print(f"[CONFIG] Detector FPS limit: {detector_fps_limit:.1f}")
@@ -637,7 +662,7 @@ def main():
         print("Loading YOLO models...")
         model = load_main_detector()
         if ocr_enabled and secondary_plate_detector_enabled:
-            license_plate_detector_model = load_plate_detector()
+            license_plate_detector_model = load_plate_detector(secondary_plate_detector_model_path)
         if motion_config["enabled"]:
             motion_detector = MotionDetector(
                 resize_width=motion_config["resize_width"],

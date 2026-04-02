@@ -338,7 +338,7 @@ def build_scenario_state(name, base_config, run_output_dir):
 
     if name == "plate_pipeline":
         state = make_detector_state(config)
-        state["plate_detector"] = load_plate_detector()
+        state["plate_detector"] = load_plate_detector(config["secondary_plate_detector_model_path"])
         state["ocr_backend"] = create_ocr_backend(config)
         state["second_detector_times_ms"] = []
         state["ocr_times_ms"] = []
