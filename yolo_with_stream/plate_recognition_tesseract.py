@@ -45,6 +45,65 @@ REQUIRED_CONFIG_KEYS = (
 )
 
 
+class MotionDetector:
+    """Gate ultra-leger base sur la difference entre frames dans la ROI."""
+
+    def __init__(self, resize_width, diff_threshold, min_area_ratio, keepalive_sec):
+        self.resize_width = resize_width
+        self.diff_threshold = diff_threshold
+        self.min_area_ratio = min_area_ratio
+        self.keepalive_sec = keepalive_sec
+        self.previous_frame = None
+        self.last_motion_at = None
+
+    def _prepare_frame(self, frame):
+        if frame.ndim == 3:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        frame_height, frame_width = frame.shape[:2]
+        if self.resize_width > 0 and frame_width > self.resize_width:
+            resized_height = max(1, int(round(frame_height * (self.resize_width / frame_width))))
+            frame = cv2.resize(
+                frame,
+                (self.resize_width, resized_height),
+                interpolation=cv2.INTER_AREA,
+            )
+
+        return cv2.GaussianBlur(frame, (5, 5), 0)
+
+    def update(self, frame, current_perf):
+        prepared_frame = self._prepare_frame(frame)
+        motion_ratio = 0.0
+        instant_motion = False
+
+        if self.previous_frame is not None and self.previous_frame.shape == prepared_frame.shape:
+            delta = cv2.absdiff(self.previous_frame, prepared_frame)
+            _, thresholded = cv2.threshold(
+                delta,
+                self.diff_threshold,
+                255,
+                cv2.THRESH_BINARY,
+            )
+            thresholded = cv2.dilate(thresholded, None, iterations=2)
+            moving_pixels = cv2.countNonZero(thresholded)
+            motion_ratio = moving_pixels / float(thresholded.size)
+            instant_motion = motion_ratio >= self.min_area_ratio
+            if instant_motion:
+                self.last_motion_at = current_perf
+
+        self.previous_frame = prepared_frame
+        recent_motion = (
+            self.last_motion_at is not None
+            and (current_perf - self.last_motion_at) <= self.keepalive_sec
+        )
+
+        return {
+            "instant_motion": instant_motion,
+            "recent_motion": instant_motion or recent_motion,
+            "motion_ratio": motion_ratio,
+        }
+
+
 def load_runtime_config(config_path):
     config_path = Path(config_path)
 
@@ -96,6 +155,10 @@ def load_runtime_config(config_path):
     if not isinstance(roi_enabled, bool):
         raise RuntimeError("Configuration key 'roi_enabled' must be a boolean.")
 
+    motion_detection_enabled = raw_config.get("motion_detection_enabled", False)
+    if not isinstance(motion_detection_enabled, bool):
+        raise RuntimeError("Configuration key 'motion_detection_enabled' must be a boolean.")
+
     detection_save_root_value = str(raw_config["detection_save_root"]).strip()
     if not detection_save_root_value:
         raise RuntimeError("Configuration key 'detection_save_root' must not be empty.")
@@ -112,12 +175,21 @@ def load_runtime_config(config_path):
         roi_y = float(raw_config["roi_y"])
         roi_width = float(raw_config["roi_width"])
         roi_height = float(raw_config["roi_height"])
+        motion_resize_width = int(raw_config.get("motion_resize_width", 320))
+        motion_diff_threshold = int(raw_config.get("motion_diff_threshold", 25))
+        motion_min_area_ratio = float(raw_config.get("motion_min_area_ratio", 0.015))
+        motion_keepalive_sec = float(raw_config.get("motion_keepalive_sec", 1.0))
+        motion_force_detector_interval_sec = float(
+            raw_config.get("motion_force_detector_interval_sec", 2.0)
+        )
     except (TypeError, ValueError) as exc:
         raise RuntimeError(
             "Configuration keys 'detection_save_min_confidence', 'fps_limit', "
             "'fps_log_interval', 'fps_summary_interval', 'detector_fps_limit', "
             "'ocr_submit_interval_sec', 'ocr_same_crop_retry_sec', "
-            "'roi_x', 'roi_y', 'roi_width', and 'roi_height' must be numeric."
+            "'roi_x', 'roi_y', 'roi_width', 'roi_height', 'motion_resize_width', "
+            "'motion_diff_threshold', 'motion_min_area_ratio', 'motion_keepalive_sec', "
+            "and 'motion_force_detector_interval_sec' must be numeric."
         ) from exc
 
     if fps_limit <= 0:
@@ -142,10 +214,25 @@ def load_runtime_config(config_path):
         raise RuntimeError("Configuration keys 'roi_x' + 'roi_width' must be <= 1.0.")
     if roi_y + roi_height > 1.0:
         raise RuntimeError("Configuration keys 'roi_y' + 'roi_height' must be <= 1.0.")
+    if motion_resize_width < 32:
+        raise RuntimeError("Configuration key 'motion_resize_width' must be >= 32.")
+    if not (1 <= motion_diff_threshold <= 255):
+        raise RuntimeError("Configuration key 'motion_diff_threshold' must be between 1 and 255.")
+    if not (0.0 < motion_min_area_ratio <= 1.0):
+        raise RuntimeError("Configuration key 'motion_min_area_ratio' must be between 0.0 and 1.0.")
+    if motion_keepalive_sec <= 0:
+        raise RuntimeError("Configuration key 'motion_keepalive_sec' must be greater than 0.")
+    if motion_force_detector_interval_sec <= 0:
+        raise RuntimeError(
+            "Configuration key 'motion_force_detector_interval_sec' must be greater than 0."
+        )
 
     detection_save_root = Path(detection_save_root_value)
     if not detection_save_root.is_absolute():
         detection_save_root = config_path.parent / detection_save_root
+
+    effective_detector_fps_limit = min(detector_fps_limit, fps_limit)
+    detector_interval = 1.0 / effective_detector_fps_limit
 
     return {
         "rtsp_url": rtsp_url,
@@ -159,13 +246,24 @@ def load_runtime_config(config_path):
         "save_detections_enabled": save_detections_enabled,
         "detection_save_min_confidence": detection_save_min_confidence,
         "detection_save_root": detection_save_root,
-        "detector_fps_limit": min(detector_fps_limit, fps_limit),
+        "detector_fps_limit": effective_detector_fps_limit,
         "roi": {
             "enabled": roi_enabled,
             "x": roi_x,
             "y": roi_y,
             "width": roi_width,
             "height": roi_height,
+        },
+        "motion": {
+            "enabled": motion_detection_enabled,
+            "resize_width": motion_resize_width,
+            "diff_threshold": motion_diff_threshold,
+            "min_area_ratio": motion_min_area_ratio,
+            "keepalive_sec": max(motion_keepalive_sec, detector_interval),
+            "force_detector_interval_sec": max(
+                motion_force_detector_interval_sec,
+                detector_interval,
+            ),
         },
         "fps_limit": fps_limit,
         "fps_log_interval": fps_log_interval,
@@ -182,6 +280,7 @@ def display_server_available():
 def adapt_runtime_config_for_environment(config):
     adjusted_config = dict(config)
     adjusted_config["roi"] = dict(config["roi"])
+    adjusted_config["motion"] = dict(config["motion"])
 
     if adjusted_config["video_display_enabled"] and not display_server_available():
         adjusted_config["video_display_enabled"] = False
@@ -298,6 +397,10 @@ def crop_frame_to_roi(frame, roi_pixels):
     if roi_pixels is None:
         return frame
     return frame[roi_pixels["y1"]:roi_pixels["y2"], roi_pixels["x1"]:roi_pixels["x2"]]
+
+
+def should_run_detector_now(current_perf, last_detector_run_at, detector_interval):
+    return last_detector_run_at == 0.0 or (current_perf - last_detector_run_at) >= detector_interval
 
 
 def box_intersects_roi(detection, roi_pixels):
@@ -465,6 +568,7 @@ def main():
     detection_save_root = config["detection_save_root"]
     detector_fps_limit = config["detector_fps_limit"]
     roi_config = config["roi"]
+    motion_config = config["motion"]
     fps_limit = config["fps_limit"]
     default_ocr_stats = build_default_ocr_stats(session_started_at, log_file_path)
 
@@ -486,6 +590,17 @@ def main():
     print(f"[CONFIG] Save detections: {'ON' if save_detections_enabled else 'OFF'}")
     print(f"[CONFIG] FPS limit: {fps_limit:.1f}")
     print(f"[CONFIG] Detector FPS limit: {detector_fps_limit:.1f}")
+    if motion_config["enabled"]:
+        print(
+            "[CONFIG] Motion gate: ON "
+            f"width={motion_config['resize_width']} "
+            f"diff={motion_config['diff_threshold']} "
+            f"area={motion_config['min_area_ratio']:.3f} "
+            f"keepalive={motion_config['keepalive_sec']:.2f}s "
+            f"force-run={motion_config['force_detector_interval_sec']:.2f}s"
+        )
+    else:
+        print("[CONFIG] Motion gate: OFF")
     if roi_config["enabled"]:
         print(
             f"[CONFIG] ROI: ON x={roi_config['x']:.2f} y={roi_config['y']:.2f} "
@@ -499,6 +614,7 @@ def main():
     ocr_worker = None
     model = None
     license_plate_detector_model = None
+    motion_detector = None
 
     try:
         frame_grabber.start()
@@ -522,6 +638,13 @@ def main():
         model = load_main_detector()
         if ocr_enabled and secondary_plate_detector_enabled:
             license_plate_detector_model = load_plate_detector()
+        if motion_config["enabled"]:
+            motion_detector = MotionDetector(
+                resize_width=motion_config["resize_width"],
+                diff_threshold=motion_config["diff_threshold"],
+                min_area_ratio=motion_config["min_area_ratio"],
+                keepalive_sec=motion_config["keepalive_sec"],
+            )
         if save_detections_enabled:
             print(f"[DETECTION] Save root: {detection_save_root}")
             print(f"[DETECTION] Min confidence: {detection_save_min_confidence:.2f}")
@@ -558,9 +681,21 @@ def main():
 
             fresh_detections = []
             roi_pixels = build_roi_pixels(frame, roi_config)
+            detection_frame = crop_frame_to_roi(frame, roi_pixels)
             current_perf = time.perf_counter()
-            if last_detector_run_at == 0.0 or (current_perf - last_detector_run_at) >= detector_interval:
-                detection_frame = crop_frame_to_roi(frame, roi_pixels)
+            detector_due = should_run_detector_now(current_perf, last_detector_run_at, detector_interval)
+            allow_detector_run = last_detector_run_at == 0.0
+            if motion_detector is not None:
+                motion_state = motion_detector.update(detection_frame, current_perf)
+                allow_detector_run = allow_detector_run or motion_state["recent_motion"]
+                force_detector_run = (
+                    last_detector_run_at != 0.0
+                    and (current_perf - last_detector_run_at)
+                    >= motion_config["force_detector_interval_sec"]
+                )
+                allow_detector_run = allow_detector_run or force_detector_run
+
+            if detector_due and allow_detector_run:
                 results = model.predict(detection_frame, imgsz=320, verbose=False)[0]
                 x_offset = roi_pixels["x1"] if roi_pixels is not None else 0
                 y_offset = roi_pixels["y1"] if roi_pixels is not None else 0

@@ -1,5 +1,5 @@
-session_started_at=2026-03-30 20:47:02
-current_fps=19.9
-min_fps=5.6
+session_started_at=2026-04-02 11:21:50
+current_fps=6.8
+min_fps=1.4
 max_fps=20.0
-active_history_file=history/fps_stats-2026-03-30.txt
+active_history_file=history/fps_stats-2026-04-02.txt
