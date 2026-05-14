@@ -1,3 +1,4 @@
+import json
 import time
 
 import cv2
@@ -33,9 +34,33 @@ from src.utils.logging import (
     current_local_timestamp,
     daily_history_path,
 )
+from src.utils.mqtt_client import ShellyMqttTrigger
 
 LOG_FILE_PATH = PROJECT_ROOT / "data" / "detected_plates.txt"
 FPS_LOG_FILE_PATH = PROJECT_ROOT / "data" / "fps_stats.txt"
+
+
+def load_registered_plates(plates_path):
+    """Charge la liste des plaques autorisees depuis le fichier JSON.
+
+    La comparaison se fait sur la forme normalisee (sans tirets, majuscules).
+    """
+    try:
+        raw = json.loads(plates_path.read_text(encoding="utf-8"))
+        plates = raw.get("plates", [])
+        normalized = {p.replace("-", "").upper() for p in plates if isinstance(p, str)}
+        print(f"[PLATES] {len(normalized)} plaque(s) pre-enregistree(s) chargee(s) depuis {plates_path}")
+        return normalized
+    except FileNotFoundError:
+        print(f"[PLATES] Fichier introuvable: {plates_path}. Aucune plaque pre-enregistree.")
+        return set()
+    except Exception as exc:
+        print(f"[PLATES] Erreur de chargement ({exc}). Aucune plaque pre-enregistree.")
+        return set()
+
+
+def is_registered_plate(plate, registered_plates):
+    return plate.replace("-", "").upper() in registered_plates
 
 
 def apply_fps_limit(loop_started_at, fps_limit):
@@ -146,6 +171,9 @@ def main():
     fps_limit = config["fps_limit"]
     default_ocr_stats = build_default_ocr_stats(session_started_at, LOG_FILE_PATH)
 
+    mqtt_config = config["mqtt"]
+    registered_plates_path = config["registered_plates_path"]
+
     print(f"[CONFIG] Loaded {CONFIG_PATH}")
     print(f"[CONFIG] RTSP URL: {rtsp_url}")
     print(f"[CONFIG] Video display: {'ON' if video_display_enabled else 'OFF'}")
@@ -180,6 +208,39 @@ def main():
         )
     else:
         print("[CONFIG] ROI: OFF")
+
+    registered_plates = load_registered_plates(registered_plates_path)
+
+    mqtt_trigger = None
+    if mqtt_config["enabled"]:
+        try:
+            mqtt_trigger = ShellyMqttTrigger(
+                broker_host=mqtt_config["broker_host"],
+                broker_port=mqtt_config["broker_port"],
+                username=mqtt_config["username"],
+                password=mqtt_config["password"],
+                shelly_device_id=mqtt_config["shelly_device_id"],
+                pulse_duration_sec=mqtt_config["pulse_duration_sec"],
+            )
+            print(
+                f"[CONFIG] MQTT: ON | broker={mqtt_config['broker_host']}:{mqtt_config['broker_port']} "
+                f"| Shelly={mqtt_config['shelly_device_id']} | pulse={mqtt_config['pulse_duration_sec']}s"
+            )
+        except Exception as exc:
+            print(f"[CONFIG] MQTT desactive suite a une erreur: {exc}")
+            mqtt_trigger = None
+    else:
+        print("[CONFIG] MQTT: OFF")
+
+    def on_stable_plate(plate, consecutive_count):
+        if consecutive_count != 1:
+            return
+        if is_registered_plate(plate, registered_plates):
+            print(f"[ACCESS] Plaque autorisee: {plate} -> signal Shelly")
+            if mqtt_trigger is not None:
+                mqtt_trigger.trigger(plate)
+        else:
+            print(f"[ACCESS] Plaque non enregistree: {plate}")
 
     print("starting RTSP stream...")
     frame_grabber = FrameGrabber(rtsp_url, queue_size=1)
@@ -227,6 +288,7 @@ def main():
                 fast_mode_enabled=ocr_fast_mode_enabled,
                 submit_interval_sec=ocr_submit_interval_sec,
                 same_crop_retry_sec=ocr_same_crop_retry_sec,
+                on_stable_plate=on_stable_plate,
             )
             ocr_worker.start()
         else:
@@ -378,6 +440,8 @@ def main():
         if ocr_worker is not None:
             ocr_worker.stop()
             ocr_worker.join(timeout=2)
+        if mqtt_trigger is not None:
+            mqtt_trigger.disconnect()
         frame_grabber.stop()
         frame_grabber.join(timeout=2)
         if video_display_enabled:

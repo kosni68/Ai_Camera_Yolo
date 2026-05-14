@@ -1,0 +1,7 @@
+{
+  "comment": "Liste des plaques autorisees. Le format accepte est : AA-123-BB ou AA123BB (tirets optionnels, insensible a la casse).",
+  "plates": [
+    "AB-123-CD",
+    "EF-456-GH"
+  ]
+}

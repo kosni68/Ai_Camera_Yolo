@@ -25,5 +25,15 @@
   "roi_height": 0.7,
   "fps_limit": 20.0,
   "fps_log_interval": 3.0,
-  "fps_summary_interval": 1.0
+  "fps_summary_interval": 1.0,
+
+  "mqtt_enabled": true,
+  "mqtt_broker_host": "192.168.1.171",
+  "mqtt_broker_port": 1883,
+  "mqtt_username": "ha-mqtt",
+  "mqtt_password": "ha-mqtt_68440",
+  "shelly_device_id": "shellyplus1mini-XXXXXX",
+  "shelly_pulse_duration_sec": 3.0,
+
+  "registered_plates_path": "config/registered_plates.json"
 }

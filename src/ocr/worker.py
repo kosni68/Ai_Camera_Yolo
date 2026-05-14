@@ -290,6 +290,7 @@ class PlateOcrWorker(threading.Thread):
         fast_mode_enabled=False,
         submit_interval_sec=0.35,
         same_crop_retry_sec=1.0,
+        on_stable_plate=None,
     ):
         super().__init__(daemon=True)
         self.queue = Queue(maxsize=queue_size)
@@ -323,6 +324,7 @@ class PlateOcrWorker(threading.Thread):
         self.ocr_initialized = False
         self.ocr_init_lock = threading.Lock()
         self.runtime_options = build_ocr_runtime_options(fast_mode_enabled=fast_mode_enabled)
+        self.on_stable_plate = on_stable_plate
 
         if self.submit_interval_sec <= 0.0:
             raise ValueError("submit_interval_sec must be greater than 0.")
@@ -632,6 +634,11 @@ class PlateOcrWorker(threading.Thread):
                     print(f"[OCR] Plaque stabilisee: {plate} (x{consecutive_count})")
                     self._record_job_outcome("success")
                     self._maybe_append_plate_history(stable_plate_info)
+                    if self.on_stable_plate is not None:
+                        try:
+                            self.on_stable_plate(plate, consecutive_count)
+                        except Exception as exc:
+                            print(f"[OCR] Erreur callback on_stable_plate: {exc}")
                 else:
                     self._record_job_outcome("unstable")
             else:

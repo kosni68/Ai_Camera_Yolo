@@ -154,6 +154,30 @@ def load_runtime_config(config_path=None):
     if not detection_save_root.is_absolute():
         detection_save_root = PROJECT_ROOT / detection_save_root
 
+    mqtt_enabled = raw_config.get("mqtt_enabled", False)
+    if not isinstance(mqtt_enabled, bool):
+        raise RuntimeError("Configuration key 'mqtt_enabled' must be a boolean.")
+
+    mqtt_broker_host = str(raw_config.get("mqtt_broker_host", "")).strip()
+    mqtt_broker_port = int(raw_config.get("mqtt_broker_port", 1883))
+    mqtt_username = str(raw_config.get("mqtt_username", ""))
+    mqtt_password = str(raw_config.get("mqtt_password", ""))
+    shelly_device_id = str(raw_config.get("shelly_device_id", "")).strip()
+    shelly_pulse_duration_sec = float(raw_config.get("shelly_pulse_duration_sec", 3.0))
+
+    if mqtt_enabled:
+        if not mqtt_broker_host:
+            raise RuntimeError("Configuration key 'mqtt_broker_host' must not be empty when mqtt_enabled=true.")
+        if not shelly_device_id:
+            raise RuntimeError("Configuration key 'shelly_device_id' must not be empty when mqtt_enabled=true.")
+        if shelly_pulse_duration_sec <= 0:
+            raise RuntimeError("Configuration key 'shelly_pulse_duration_sec' must be greater than 0.")
+
+    registered_plates_path_value = str(raw_config.get("registered_plates_path", "config/registered_plates.json")).strip()
+    registered_plates_path = Path(registered_plates_path_value)
+    if not registered_plates_path.is_absolute():
+        registered_plates_path = PROJECT_ROOT / registered_plates_path
+
     effective_detector_fps_limit = min(detector_fps_limit, fps_limit)
     detector_interval = 1.0 / effective_detector_fps_limit
 
@@ -192,6 +216,16 @@ def load_runtime_config(config_path=None):
         "fps_limit": fps_limit,
         "fps_log_interval": fps_log_interval,
         "fps_summary_interval": fps_summary_interval,
+        "mqtt": {
+            "enabled": mqtt_enabled,
+            "broker_host": mqtt_broker_host,
+            "broker_port": mqtt_broker_port,
+            "username": mqtt_username,
+            "password": mqtt_password,
+            "shelly_device_id": shelly_device_id,
+            "pulse_duration_sec": shelly_pulse_duration_sec,
+        },
+        "registered_plates_path": registered_plates_path,
     }
 
 
