@@ -1,6 +1,0 @@
-{
-  "rtsp_url": "rtsp://192.168.1.196:554/stream1",
-  "video_display_enabled": true,
-  "display_width": 1280,
-  "display_height": 720
-}

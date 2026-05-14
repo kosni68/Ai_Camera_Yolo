@@ -17,7 +17,7 @@
   "motion_diff_threshold": 25,
   "motion_min_area_ratio": 0.015,
   "motion_keepalive_sec": 1.0,
-  "motion_force_detector_interval_sec": 5.0,
+  "motion_force_detector_interval_sec": 10.0,
   "roi_enabled": true,
   "roi_x": 0,
   "roi_y": 0.3,
