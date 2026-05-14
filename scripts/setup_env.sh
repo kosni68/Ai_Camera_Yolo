@@ -80,10 +80,10 @@ python_has_pip() {
   "$python_bin" -m pip --version >/dev/null 2>&1
 }
 
-project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 venv_dir="$project_dir/.venv"
 venv_python="$venv_dir/bin/python"
-requirements_file="$project_dir/requirements.txt"
+requirements_file="$project_dir/requirements/base.txt"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   fail "This script is intended to run on Linux."
@@ -197,9 +197,5 @@ fi
 printf '\n'
 printf 'Setup complete.\n'
 printf 'Next commands from repo root:\n'
-printf 'source ./yolo_with_stream/.venv/bin/activate\n'
-printf 'python ./yolo_with_stream/plate_recognition_tesseract.py\n'
-printf '\n'
-printf 'If you are already in yolo_with_stream:\n'
 printf 'source ./.venv/bin/activate\n'
-printf 'python ./plate_recognition_tesseract.py\n'
+printf 'python -m src.main\n'

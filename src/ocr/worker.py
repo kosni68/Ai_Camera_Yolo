@@ -1,29 +1,30 @@
-import time
-import threading
-from queue import Queue, Empty
 import os
 import shutil
+import threading
+import time
 from collections import Counter, deque
+from queue import Empty, Queue
+
+import cv2
 import pytesseract
 from pytesseract import TesseractNotFoundError
-import cv2
 
 try:
     import easyocr
 except ImportError:
     easyocr = None
 
-from utils import (
+from src.ocr.plate_text import (
     build_ocr_variants,
     is_french_plate,
     match_french_plate,
     normalize_ocr_text,
     prepare_plate_for_ocr,
 )
-from log_utils import (
+from src.utils.logging import (
     active_history_label,
-    atomic_write_text,
     append_line,
+    atomic_write_text,
     current_local_timestamp,
     daily_history_path,
 )
@@ -348,7 +349,7 @@ class PlateOcrWorker(threading.Thread):
             if self.tesseract_path:
                 print(f"[OCR] Using Tesseract at {self.tesseract_path}")
             if not self.ocr_available:
-                print("[OCR] Tesseract introuvable. Definis TESSERACT_CMD ou relance setup_env.ps1/setup_env.sh.")
+                print("[OCR] Tesseract introuvable. Definis TESSERACT_CMD ou relance scripts/setup_env.ps1.")
 
         return self.ocr_available
 

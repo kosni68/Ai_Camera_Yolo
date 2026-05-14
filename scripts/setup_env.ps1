@@ -50,10 +50,10 @@ function Add-ToProcessPath {
     }
 }
 
-$projectDir = $PSScriptRoot
+$projectDir = (Get-Item $PSScriptRoot).Parent.FullName
 $venvDir = Join-Path $projectDir ".venv"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
-$requirementsFile = Join-Path $projectDir "requirements.txt"
+$requirementsFile = Join-Path $projectDir "requirements\base.txt"
 $pythonInstallHint = "winget install --id Python.Python.3.12 --exact"
 $tesseractWasInstalled = $false
 $tesseractNeedsShellRefresh = $false
@@ -183,8 +183,8 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 Write-Host "Setup complete." -ForegroundColor Green
 Write-Host "Next commands from repo root:"
-Write-Host ".\yolo_with_stream\.venv\Scripts\Activate.ps1"
-Write-Host "python .\yolo_with_stream\plate_recognition_tesseract.py"
+Write-Host ".\.venv\Scripts\Activate.ps1"
+Write-Host "python -m src.main"
 
 if ($tesseractWasInstalled -or $tesseractNeedsShellRefresh) {
     Write-Host ""

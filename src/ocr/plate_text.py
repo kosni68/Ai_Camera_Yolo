@@ -1,6 +1,7 @@
+import re
+
 import cv2
 import numpy as np
-import re
 
 STANDARD_PLATE_WIDTH = 520
 STANDARD_PLATE_HEIGHT = 110
@@ -35,12 +36,8 @@ PLATE_PATTERNS = (
 )
 
 
-def _ensure_grayscale(image):
-    if image is None or image.size == 0:
-        return np.array([], dtype=np.uint8)
-    if len(image.shape) == 2:
-        return image
-    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+def normalize_ocr_text(text):
+    return re.sub(r"[^A-Z0-9]", "", text.upper())
 
 
 def _candidate_windows(text, target_length):
@@ -49,18 +46,6 @@ def _candidate_windows(text, target_length):
     if len(text) == target_length:
         return [text]
     return [text[index:index + target_length] for index in range(len(text) - target_length + 1)]
-
-
-def _order_points(pts):
-    rect = np.zeros((4, 2), dtype="float32")
-    point_sums = pts.sum(axis=1)
-    rect[0] = pts[np.argmin(point_sums)]
-    rect[2] = pts[np.argmax(point_sums)]
-
-    point_diffs = np.diff(pts, axis=1)
-    rect[1] = pts[np.argmin(point_diffs)]
-    rect[3] = pts[np.argmax(point_diffs)]
-    return rect
 
 
 def _coerce_to_pattern(text, pattern):
@@ -94,10 +79,6 @@ def _coerce_to_pattern(text, pattern):
     return "".join(coerced), substitutions
 
 
-def normalize_ocr_text(text):
-    return re.sub(r"[^A-Z0-9]", "", text.upper())
-
-
 def match_french_plate(text):
     clean = normalize_ocr_text(text)
     if not clean:
@@ -120,9 +101,36 @@ def match_french_plate(text):
     return normalized, formatted
 
 
-def sharpen_image(image):
-    kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
-    return cv2.filter2D(image, -1, kernel)
+def is_french_plate(text):
+    return match_french_plate(text) is not None
+
+
+def format_french_plate(text):
+    match = match_french_plate(text)
+    if match is not None:
+        _, formatted = match
+        return formatted
+    return text
+
+
+def _ensure_grayscale(image):
+    if image is None or image.size == 0:
+        return np.array([], dtype=np.uint8)
+    if len(image.shape) == 2:
+        return image
+    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+
+def _order_points(pts):
+    rect = np.zeros((4, 2), dtype="float32")
+    point_sums = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(point_sums)]
+    rect[2] = pts[np.argmax(point_sums)]
+
+    point_diffs = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(point_diffs)]
+    rect[3] = pts[np.argmax(point_diffs)]
+    return rect
 
 
 def _find_plate_corners(image):
@@ -212,6 +220,11 @@ def prepare_plate_for_ocr(image):
     return rectified, text_region
 
 
+def sharpen_image(image):
+    kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+    return cv2.filter2D(image, -1, kernel)
+
+
 def preprocess_for_ocr(image):
     _, text_region = prepare_plate_for_ocr(image)
     gray = _ensure_grayscale(text_region)
@@ -252,46 +265,3 @@ def build_ocr_variants(image):
         upscaled = cv2.resize(variant, (0, 0), fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
         variants.append((name, upscaled))
     return variants
-
-
-def is_french_plate(text):
-    return match_french_plate(text) is not None
-
-
-def format_french_plate(text):
-    match = match_french_plate(text)
-    if match is not None:
-        _, formatted = match
-        return formatted
-    return text
-
-
-def draw_fps_info(frame, fps, min_fps, max_fps):
-    fps_text = f"FPS: {fps:.1f} | Min: {min_fps:.1f} | Max: {max_fps:.1f}"
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 1.0
-    font_thickness = 2
-    text_color = (0, 255, 0)
-    bg_color = (0, 0, 0)
-    (text_width, text_height), _ = cv2.getTextSize(fps_text, font, font_scale, font_thickness)
-    x, y = frame.shape[1] - text_width - 30, text_height + 20
-    cv2.rectangle(
-        frame,
-        (x - 10, y - text_height - 10),
-        (x + text_width + 10, y + 10),
-        bg_color,
-        -1,
-    )
-    cv2.putText(frame, fps_text, (x, y), font, font_scale, text_color, font_thickness)
-    return frame
-
-
-VEHICLE_CLASSES = {
-    "car",
-    "truck",
-    "bus",
-    "motorbike",
-    "motorcycle",
-    "bicycle",
-    "van",
-}

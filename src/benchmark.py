@@ -7,22 +7,21 @@ from pathlib import Path
 
 import cv2
 
-from capture import FrameGrabber
-from detection import analyze_with_second_model
-from ocr_worker import build_ocr_runtime_options, initialize_ocr_backend, run_ocr
-from plate_recognition_tesseract import (
-    BASE_DIR,
-    CONFIG_PATH,
+from src.core.capture import FrameGrabber
+from src.core.config import CONFIG_PATH, PROJECT_ROOT, load_runtime_config
+from src.detection import VEHICLE_CLASSES
+from src.detection.plate import analyze_with_second_model
+from src.detection.yolo import (
     box_intersects_roi,
     build_roi_pixels,
+    collect_detected_classes,
     crop_frame_to_roi,
     draw_detected_boxes,
     extract_detection_records,
     load_main_detector,
     load_plate_detector,
-    load_runtime_config,
 )
-from utils import VEHICLE_CLASSES
+from src.ocr.worker import build_ocr_runtime_options, initialize_ocr_backend, run_ocr
 
 DEFAULT_SCENARIOS = (
     "capture_only",
@@ -59,7 +58,7 @@ def build_output_dir(output_dir):
         return output_dir
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_output_dir = BASE_DIR / "data" / "benchmarks" / timestamp
+    run_output_dir = PROJECT_ROOT / "data" / "benchmarks" / timestamp
     run_output_dir.mkdir(parents=True, exist_ok=True)
     return run_output_dir
 
@@ -177,7 +176,7 @@ def run_main_detector(frame, state, result, record):
         fresh_detections = extract_detection_records(results, x_offset=x_offset, y_offset=y_offset)
         if roi_pixels is not None:
             fresh_detections = [
-                detection for detection in fresh_detections if box_intersects_roi(detection, roi_pixels)
+                det for det in fresh_detections if box_intersects_roi(det, roi_pixels)
             ]
 
         state["last_detections"] = fresh_detections
@@ -186,7 +185,7 @@ def run_main_detector(frame, state, result, record):
         if record:
             result["detector_runs"] += 1
             result["vehicle_crops"] += sum(
-                1 for detection in fresh_detections if detection["label"] in VEHICLE_CLASSES
+                1 for det in fresh_detections if det["label"] in VEHICLE_CLASSES
             )
             state["main_detector_times_ms"].append(infer_ms)
 
@@ -221,15 +220,7 @@ def process_capture_only(frame, state, result, record):
 def process_overlay_only(frame, state, result, record):
     roi_pixels = build_roi_pixels(frame, state["config"]["roi"])
     overlay = draw_detected_boxes(frame, (), roi_pixels=roi_pixels)
-    cv2.putText(
-        overlay,
-        "overlay_only",
-        (30, 50),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1.0,
-        (0, 200, 255),
-        2,
-    )
+    cv2.putText(overlay, "overlay_only", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 200, 255), 2)
     return None
 
 
@@ -248,15 +239,7 @@ def process_save_frame_cost(frame, state, result, record):
 
     roi_pixels = build_roi_pixels(frame, state["config"]["roi"])
     annotated = draw_detected_boxes(frame, (), roi_pixels=roi_pixels)
-    cv2.putText(
-        annotated,
-        "save_frame_cost",
-        (30, 50),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1.0,
-        (0, 200, 255),
-        2,
-    )
+    cv2.putText(annotated, "save_frame_cost", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 200, 255), 2)
 
     output_path = state["scenario_dir"] / f"frame-{state['save_index']:03d}.jpg"
     save_started_at = time.perf_counter()
@@ -398,10 +381,7 @@ def print_results_table(results):
     )
 
     def format_row(values):
-        cells = []
-        for (label, width), value in zip(headers, values):
-            cells.append(f"{value:<{width}}")
-        return " ".join(cells)
+        return " ".join(f"{value:<{width}}" for (_, width), value in zip(headers, values))
 
     print(format_row([label for label, _ in headers]))
     print(format_row(["-" * min(width, len(label)) for label, width in headers]))
@@ -436,7 +416,7 @@ def main():
 
     scenario_names = args.scenarios if args.scenarios else list(DEFAULT_SCENARIOS)
     output_dir = build_output_dir(args.output_dir)
-    config = load_runtime_config(CONFIG_PATH)
+    config = load_runtime_config()
 
     print(f"[BENCH] Output dir: {output_dir}")
     print(f"[BENCH] RTSP URL: {config['rtsp_url']}")

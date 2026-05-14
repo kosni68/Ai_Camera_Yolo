@@ -4,6 +4,6 @@ numpy==1.26.4
 pytesseract==0.3.13
 pillow==11.2.1
 
-# Runtime dependencies for plate_recognition_tesseract.py
+# Runtime dependencies for src/main.py
 torch==2.6.0
 torchvision==0.21.0

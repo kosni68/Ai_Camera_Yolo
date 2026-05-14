@@ -158,90 +158,110 @@ http://<IP_RPI>:8889/mystream
 | Activer au boot | `sudo systemctl enable rpi-rtsp` |
 ---
 
-## Windows setup pour `yolo_with_stream`
+## Structure du projet
 
-Pour preparer l'environnement Windows et lancer la detection de plaques, execute ces commandes depuis la racine du repo :
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\yolo_with_stream\setup_env.ps1
-.\yolo_with_stream\.venv\Scripts\Activate.ps1
-python .\yolo_with_stream\plate_recognition_tesseract.py
+```
+Ai_Camera_Yolo/
+├── config/
+│   └── config.json          # Parametres runtime (RTSP, OCR, ROI, FPS...)
+├── models/                  # Modeles YOLO (non versionnes)
+├── data/                    # Logs et captures (non versionnes)
+│   ├── detected_plates.txt
+│   ├── fps_stats.txt
+│   ├── history/
+│   ├── detections/
+│   └── benchmarks/
+├── requirements/
+│   ├── base.txt             # Dependances principales
+│   └── optional.txt         # EasyOCR (optionnel)
+├── scripts/
+│   ├── setup_env.ps1        # Setup Windows
+│   └── setup_env.sh         # Setup Linux/Ubuntu
+└── src/
+    ├── main.py              # Entry point : pipeline de detection
+    ├── benchmark.py         # Entry point : benchmark RTSP
+    ├── core/
+    │   ├── capture.py       # FrameGrabber RTSP
+    │   ├── config.py        # Chargement et validation de config.json
+    │   └── motion.py        # Detecteur de mouvement
+    ├── detection/
+    │   ├── yolo.py          # Chargement YOLO, extraction detections, ROI, sauvegarde
+    │   └── plate.py         # Second modele : recadrage plaque
+    ├── ocr/
+    │   ├── worker.py        # PlateOcrWorker + backends EasyOCR/Tesseract
+    │   └── plate_text.py    # Matching format FR, preprocessing image
+    └── utils/
+        ├── drawing.py       # Overlay FPS
+        └── logging.py       # Ecriture atomique, historique journalier
 ```
 
-Si tu es deja dans le dossier `yolo_with_stream`, utilise plutot :
+## Windows setup
+
+Depuis la racine du repo :
 
 ```powershell
-.\setup_env.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_env.ps1
 .\.venv\Scripts\Activate.ps1
-python .\plate_recognition_tesseract.py
+python -m src.main
 ```
 
 Notes utiles :
 
-- Le script cree ou reutilise `yolo_with_stream/.venv`.
+- Le script cree ou reutilise `.venv` a la racine du repo.
 - Python 3.12 est requis.
 - Tesseract est installe automatiquement via `winget` s'il n'est pas deja present.
-- Pour installer les dependances optionnelles EasyOCR : `python -m pip install -r .\yolo_with_stream\requirements-optional.txt`
+- Pour installer les dependances optionnelles EasyOCR : `python -m pip install -r .\requirements\optional.txt`
 - Si `tesseract` n'est pas reconnu juste apres l'installation, ouvre un nouveau terminal PowerShell.
-- Les reglages runtime du script sont charges depuis `yolo_with_stream/config.json`.
-- `video_display_enabled` dans `yolo_with_stream/config.json` active ou coupe toutes les fenetres OpenCV du script.
-- `overlay_enabled` coupe les overlays 4K du flux principal quand tu veux mesurer uniquement la detection sans dessin.
+- Les reglages runtime sont charges depuis `config/config.json`.
+- `video_display_enabled` active ou coupe toutes les fenetres OpenCV.
+- `overlay_enabled` coupe les overlays du flux principal.
 - `ocr_enabled` active ou coupe tout le pipeline OCR.
-- `ocr_fast_mode_enabled` active un profil OCR plus leger : EasyOCR prioritaire, sans fallback Tesseract si EasyOCR est present, avec moins de variantes OCR.
+- `ocr_fast_mode_enabled` active un profil OCR plus leger.
 - `ocr_submit_interval_sec` espace les jobs OCR pour eviter de retraiter trop souvent la meme scene.
 - `ocr_same_crop_retry_sec` retarde les retries quand le crop plaque change tres peu.
 - `secondary_plate_detector_enabled` active ou coupe le second modele YOLO qui affine le crop plaque avant OCR.
-- `fps_limit` dans `yolo_with_stream/config.json` plafonne la boucle principale du script.
-- `detector_fps_limit` dans `yolo_with_stream/config.json` cadence les inferences YOLO pour reduire la charge CPU tout en gardant un affichage fluide.
-- `roi_enabled`, `roi_x`, `roi_y`, `roi_width` et `roi_height` dans `yolo_with_stream/config.json` permettent de limiter l'analyse du modele principal a une zone rectangulaire normalisee.
+- `fps_limit` plafonne la boucle principale.
+- `detector_fps_limit` cadence les inferences YOLO pour reduire la charge CPU.
+- `roi_enabled`, `roi_x`, `roi_y`, `roi_width` et `roi_height` limitent l'analyse a une zone normalisee.
 
-## Ubuntu setup pour `yolo_with_stream`
+## Ubuntu setup
 
-Pour preparer l'environnement Ubuntu et lancer la detection de plaques, execute ces commandes depuis la racine du repo :
-
-```bash
-chmod +x ./yolo_with_stream/setup_env.sh
-./yolo_with_stream/setup_env.sh
-source ./yolo_with_stream/.venv/bin/activate
-python ./yolo_with_stream/plate_recognition_tesseract.py
-```
-
-Si tu es deja dans le dossier `yolo_with_stream`, utilise plutot :
+Depuis la racine du repo :
 
 ```bash
-chmod +x ./setup_env.sh
-./setup_env.sh
+chmod +x ./scripts/setup_env.sh
+./scripts/setup_env.sh
 source ./.venv/bin/activate
-python ./plate_recognition_tesseract.py
+python -m src.main
 ```
 
 Notes utiles :
 
-- Le script cree ou reutilise `yolo_with_stream/.venv`.
+- Le script cree ou reutilise `.venv` a la racine du repo.
 - Python 3.12 est requis.
-- Le script installe automatiquement `tesseract-ocr` et les bibliotheques systeme OpenCV utiles via `apt-get`.
-- Sur une machine Ubuntu sans interface graphique, mets `video_display_enabled` a `false` dans `yolo_with_stream/config.json`.
-- Si `video_display_enabled` reste a `true` sur un Linux sans `DISPLAY` ni `WAYLAND_DISPLAY`, le script desactive maintenant automatiquement les fenetres OpenCV et les overlays pour la session en cours.
-- Pour installer les dependances optionnelles EasyOCR : `python -m pip install -r ./yolo_with_stream/requirements-optional.txt`
+- Le script installe automatiquement `tesseract-ocr` et les bibliotheques systeme OpenCV via `apt-get`.
+- Sur une machine sans interface graphique, mets `video_display_enabled` a `false` dans `config/config.json`.
+- Si `video_display_enabled` reste a `true` sur un Linux sans `DISPLAY` ni `WAYLAND_DISPLAY`, le script desactive automatiquement les fenetres OpenCV et les overlays.
+- Pour installer les dependances optionnelles EasyOCR : `python -m pip install -r ./requirements/optional.txt`
 
 ## Benchmark CPU RTSP live
 
 Depuis la racine du repo :
 
 ```powershell
-.\yolo_with_stream\.venv\Scripts\Activate.ps1
-python .\yolo_with_stream\benchmark_rtsp.py --duration 10 --warmup 3
+.\.venv\Scripts\Activate.ps1
+python -m src.benchmark --duration 10 --warmup 3
 ```
 
 Options utiles :
 
 - `--scenarios capture_only overlay_only detector_baseline detector_no_roi detector_low_rate_2fps save_frame_cost plate_pipeline`
-- `--output-dir .\yolo_with_stream\data\benchmarks\mon-run`
+- `--output-dir .\data\benchmarks\mon-run`
 
 Sorties :
 
 - un tableau console avec `status`, `wall_fps`, `process_cpu_pct`, `detector_runs`, `vehicle_crops`, `ocr_jobs`, `files_written`
-- un resume JSON dans `yolo_with_stream/data/benchmarks/<timestamp>/summary.json`
+- un resume JSON dans `data/benchmarks/<timestamp>/summary.json`
 
 Definition rapide des scenarios :
 
@@ -251,37 +271,35 @@ Definition rapide des scenarios :
 - `detector_no_roi` : meme detecteur avec ROI desactive
 - `detector_low_rate_2fps` : detecteur principal limite a 2 FPS
 - `save_frame_cost` : sauvegarde JPEG forcee pour mesurer le cout I/O
-- `plate_pipeline` : detecteur principal + second detecteur plaque + OCR, avec statut `skipped_no_vehicle_crop` s'il n'y a pas de vehicule exploitable pendant la mesure
+- `plate_pipeline` : detecteur principal + second detecteur plaque + OCR
 
 ## Logs et stats OCR
 
-Au lancement de `python .\yolo_with_stream\plate_recognition_tesseract.py`, deux fichiers "courants" sont maintenant reecrits en place :
+Au lancement de `python -m src.main`, deux fichiers courants sont reecrits en place :
 
-- `yolo_with_stream/data/detected_plates.txt`
-- `yolo_with_stream/data/fps_stats.txt`
-
-Ces fichiers restent compacts et contiennent uniquement l'etat de session le plus recent.
+- `data/detected_plates.txt`
+- `data/fps_stats.txt`
 
 Les historiques detailles sont ecrits dans :
 
-- `yolo_with_stream/data/history/detected_plates-YYYY-MM-DD.txt`
-- `yolo_with_stream/data/history/fps_stats-YYYY-MM-DD.txt`
+- `data/history/detected_plates-YYYY-MM-DD.txt`
+- `data/history/fps_stats-YYYY-MM-DD.txt`
 
 Rotation :
 
 - un nouveau fichier est cree chaque jour selon l'heure locale de la machine.
-- pour les plaques, l'historique detaille ecrit au premier verrouillage, au changement de plaque, puis toutes les 30 secondes si la meme plaque reste stable.
+- pour les plaques, l'historique ecrit au premier verrouillage, au changement de plaque, puis toutes les 30 secondes si la meme plaque reste stable.
 
 Definition du taux OCR :
 
 - `ocr_jobs_processed` = nombre de crops OCR reellement traites.
 - `ocr_success_stabilized` = nombre de jobs ayant abouti a une plaque francaise stabilisee.
-- `ocr_failure_total` = nombre de jobs n'ayant pas abouti a une plaque francaise stabilisee.
+- `ocr_failure_total` = nombre de jobs n'ayant pas abouti a une plaque stabilisee.
 - `ocr_failure_non_french` = texte lu mais hors format FR.
 - `ocr_failure_unstable` = candidat FR vu mais pas encore stabilise.
 - `ocr_failure_empty` = aucun texte exploitable.
 
-Le taux affiche a l'ecran et dans `detected_plates.txt` est calcule par session :
+Le taux affiche a l'ecran et dans `detected_plates.txt` :
 
 - `ocr_success_rate_pct = ocr_success_stabilized / ocr_jobs_processed * 100`
 - `ocr_failure_rate_pct = ocr_failure_total / ocr_jobs_processed * 100`
