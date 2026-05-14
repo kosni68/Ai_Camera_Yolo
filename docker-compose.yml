@@ -1,0 +1,8 @@
+services:
+  camera:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+    network_mode: host
