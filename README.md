@@ -162,9 +162,14 @@ http://<IP_RPI>:8889/mystream
 
 ```
 Ai_Camera_Yolo/
+├── Dockerfile               # Image Docker pour le pipeline de detection
+├── docker-compose.yml       # Compose : monte config/ et data/, reseau host
+├── .dockerignore
 ├── config/
 │   └── config.json          # Parametres runtime (RTSP, OCR, ROI, FPS...)
 ├── models/                  # Modeles YOLO (non versionnes)
+│   ├── license_plate_detector.pt      # Detecteur principal (vehicules)
+│   └── anpr_best.pt                   # Second detecteur (affinage plaque)
 ├── data/                    # Logs et captures (non versionnes)
 │   ├── detected_plates.txt
 │   ├── fps_stats.txt
@@ -183,7 +188,7 @@ Ai_Camera_Yolo/
     ├── core/
     │   ├── capture.py       # FrameGrabber RTSP
     │   ├── config.py        # Chargement et validation de config.json
-    │   └── motion.py        # Detecteur de mouvement
+    │   └── motion.py        # Detecteur de mouvement (gate leger avant YOLO)
     ├── detection/
     │   ├── yolo.py          # Chargement YOLO, extraction detections, ROI, sauvegarde
     │   └── plate.py         # Second modele : recadrage plaque
@@ -220,6 +225,16 @@ Notes utiles :
 - `ocr_submit_interval_sec` espace les jobs OCR pour eviter de retraiter trop souvent la meme scene.
 - `ocr_same_crop_retry_sec` retarde les retries quand le crop plaque change tres peu.
 - `secondary_plate_detector_enabled` active ou coupe le second modele YOLO qui affine le crop plaque avant OCR.
+- `secondary_plate_detector_model_path` chemin vers le modele du second detecteur (defaut : `models/anpr_best.pt`).
+- `save_detections_enabled` active la sauvegarde des crops de detection en JPEG dans `detection_save_root`.
+- `detection_save_min_confidence` seuil minimum de confiance pour declencher la sauvegarde (ex : `0.5`).
+- `detection_save_root` dossier racine pour les crops sauvegardes (defaut : `data/detections`).
+- `motion_detection_enabled` active le gate de mouvement : YOLO n'est lance que si du mouvement est detecte.
+- `motion_resize_width` largeur cible pour le redimensionnement avant calcul de difference (ex : `320`).
+- `motion_diff_threshold` seuil pixel pour considerer un pixel comme "different" (ex : `25`).
+- `motion_min_area_ratio` ratio minimal de pixels en mouvement pour valider une detection (ex : `0.015`).
+- `motion_keepalive_sec` duree pendant laquelle YOLO reste actif apres la fin du mouvement (ex : `1.0`).
+- `motion_force_detector_interval_sec` force une inference YOLO meme sans mouvement apres ce delai en secondes (ex : `10.0`).
 - `fps_limit` plafonne la boucle principale.
 - `detector_fps_limit` cadence les inferences YOLO pour reduire la charge CPU.
 - `roi_enabled`, `roi_x`, `roi_y`, `roi_width` et `roi_height` limitent l'analyse a une zone normalisee.
@@ -243,6 +258,31 @@ Notes utiles :
 - Sur une machine sans interface graphique, mets `video_display_enabled` a `false` dans `config/config.json`.
 - Si `video_display_enabled` reste a `true` sur un Linux sans `DISPLAY` ni `WAYLAND_DISPLAY`, le script desactive automatiquement les fenetres OpenCV et les overlays.
 - Pour installer les dependances optionnelles EasyOCR : `python -m pip install -r ./requirements/optional.txt`
+
+## Docker
+
+Le `Dockerfile` produit une image `python:3.12-slim` avec Tesseract FR et les dependances OpenCV preinstallees. Le `docker-compose.yml` monte `config/` et `data/` en volume et utilise `network_mode: host` pour atteindre le flux RTSP local.
+
+Construire et lancer :
+
+```bash
+docker compose up --build -d
+```
+
+Suivre les logs :
+
+```bash
+docker compose logs -f camera
+```
+
+Notes :
+
+- Le conteneur ne gere pas de fenetre graphique : mets `video_display_enabled` a `false` dans `config/config.json`.
+- Les plaques detectees et les stats FPS sont ecrites dans `data/` sur l'hote via le volume.
+- Pour passer des modeles custom, place-les dans `models/` avant le build (ils sont copies dans l'image via `COPY models/ models/`).
+- EasyOCR n'est pas inclus dans l'image de base ; si besoin, ajoute `requirements/optional.txt` dans le `Dockerfile`.
+
+---
 
 ## Benchmark CPU RTSP live
 
