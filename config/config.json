@@ -11,6 +11,8 @@
   "save_detections_enabled": true,
   "detection_save_min_confidence": 0.5,
   "detection_save_root": "data/detections",
+  "save_plates_enabled": true,
+  "plate_save_root": "data/plates",
   "detector_fps_limit": 5.0,
   "motion_detection_enabled": true,
   "motion_resize_width": 320,

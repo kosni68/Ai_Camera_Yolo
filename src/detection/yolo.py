@@ -135,6 +135,27 @@ def draw_detected_boxes(frame, detections, roi_pixels=None, copy_frame=True):
     return annotated
 
 
+def save_plate_image(crop, save_root, plate_text=None):
+    if crop is None or crop.size == 0:
+        return None
+
+    timestamp = datetime.now()
+    day_folder = timestamp.strftime("%Y-%m-%d")
+    file_stamp = timestamp.strftime("%Y%m%d-%H%M%S-%f")[:-3]
+    if plate_text:
+        safe_plate = "".join(c for c in plate_text if c.isalnum()).upper()
+        file_name = f"{file_stamp}__{safe_plate}.jpg"
+    else:
+        file_name = f"{file_stamp}.jpg"
+    output_path = Path(save_root) / day_folder / file_name
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if cv2.imwrite(str(output_path), crop):
+        print(f"[PLATE] Photo sauvegardee: {output_path}")
+    else:
+        print(f"[PLATE] Echec sauvegarde: {output_path}")
+    return output_path
+
+
 def save_detection_frame(frame, detected_classes, save_root):
     if frame is None or frame.size == 0 or not detected_classes:
         return []

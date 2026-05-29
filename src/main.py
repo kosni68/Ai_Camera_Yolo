@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 
 import cv2
@@ -23,6 +24,7 @@ from src.detection.yolo import (
     load_main_detector,
     load_plate_detector,
     save_detection_frame,
+    save_plate_image,
     should_run_detector_now,
 )
 from src.ocr.worker import PlateOcrWorker
@@ -165,6 +167,8 @@ def main():
     save_detections_enabled = config["save_detections_enabled"]
     detection_save_min_confidence = config["detection_save_min_confidence"]
     detection_save_root = config["detection_save_root"]
+    save_plates_enabled = config["save_plates_enabled"]
+    plate_save_root = config["plate_save_root"]
     detector_fps_limit = config["detector_fps_limit"]
     roi_config = config["roi"]
     motion_config = config["motion"]
@@ -188,6 +192,7 @@ def main():
     print(f"[CONFIG] Secondary plate detector: {'ON' if secondary_plate_detector_enabled else 'OFF'}")
     print(f"[CONFIG] Secondary plate detector model: {secondary_plate_detector_model_path}")
     print(f"[CONFIG] Save detections: {'ON' if save_detections_enabled else 'OFF'}")
+    print(f"[CONFIG] Save plate photos: {'ON' if save_plates_enabled else 'OFF'}")
     print(f"[CONFIG] FPS limit: {fps_limit:.1f}")
     print(f"[CONFIG] Detector FPS limit: {detector_fps_limit:.1f}")
     if motion_config["enabled"]:
@@ -210,6 +215,9 @@ def main():
         print("[CONFIG] ROI: OFF")
 
     registered_plates = load_registered_plates(registered_plates_path)
+
+    last_plate_crop_lock = threading.Lock()
+    last_plate_crop = [None]
 
     mqtt_trigger = None
     if mqtt_config["enabled"]:
@@ -235,6 +243,11 @@ def main():
     def on_stable_plate(plate, consecutive_count):
         if consecutive_count != 1:
             return
+        if save_plates_enabled:
+            with last_plate_crop_lock:
+                crop = last_plate_crop[0]
+            if crop is not None:
+                save_plate_image(crop, plate_save_root, plate_text=plate)
         if is_registered_plate(plate, registered_plates):
             print(f"[ACCESS] Plaque autorisee: {plate} -> signal Shelly")
             if mqtt_trigger is not None:
@@ -375,6 +388,10 @@ def main():
 
                     if ocr_worker.submit(refined_crop):
                         submitted_this_frame = True
+                        with last_plate_crop_lock:
+                            last_plate_crop[0] = refined_crop.copy()
+                        if save_plates_enabled:
+                            save_plate_image(refined_crop, plate_save_root)
                         if video_display_enabled:
                             cv2.imshow("Plate", refined_crop)
 

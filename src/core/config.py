@@ -154,6 +154,15 @@ def load_runtime_config(config_path=None):
     if not detection_save_root.is_absolute():
         detection_save_root = PROJECT_ROOT / detection_save_root
 
+    save_plates_enabled = raw_config.get("save_plates_enabled", True)
+    if not isinstance(save_plates_enabled, bool):
+        raise RuntimeError("Configuration key 'save_plates_enabled' must be a boolean.")
+
+    plate_save_root_value = str(raw_config.get("plate_save_root", "data/plates")).strip()
+    plate_save_root = Path(plate_save_root_value)
+    if not plate_save_root.is_absolute():
+        plate_save_root = PROJECT_ROOT / plate_save_root
+
     mqtt_enabled = raw_config.get("mqtt_enabled", False)
     if not isinstance(mqtt_enabled, bool):
         raise RuntimeError("Configuration key 'mqtt_enabled' must be a boolean.")
@@ -194,6 +203,8 @@ def load_runtime_config(config_path=None):
         "save_detections_enabled": raw_config["save_detections_enabled"],
         "detection_save_min_confidence": detection_save_min_confidence,
         "detection_save_root": detection_save_root,
+        "save_plates_enabled": save_plates_enabled,
+        "plate_save_root": plate_save_root,
         "detector_fps_limit": effective_detector_fps_limit,
         "roi": {
             "enabled": raw_config["roi_enabled"],
