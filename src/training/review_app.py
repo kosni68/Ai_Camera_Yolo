@@ -11,6 +11,7 @@ Puis ouvre http://<ip-machine>:5000/ depuis ton telephone ou ton PC.
 """
 
 import argparse
+import importlib.util
 import os
 
 import cv2
@@ -31,7 +32,7 @@ try:
 except ImportError:
     _FLASK_AVAILABLE = False
 
-from src.core.config import load_runtime_config
+from src.core.config import PROJECT_ROOT, load_runtime_config
 from src.ocr.plate_text import format_french_plate, match_french_plate, normalize_ocr_text
 from src.training.dataset_store import (
     STATUS_CORRECTED,
@@ -40,6 +41,7 @@ from src.training.dataset_store import (
     DatasetStore,
     resolve_image_path,
 )
+from src.training.runner import TrainingRunner
 
 
 def score_predictions(rows):
@@ -108,6 +110,13 @@ def create_app(store):
     except Exception:
         app.config["DEFAULT_MODEL"] = ""
         app.config["DEFAULT_CONFIG"] = ""
+
+    runner = TrainingRunner(
+        dataset_dir=PROJECT_ROOT / "data" / "ocr_dataset",
+        output_dir=PROJECT_ROOT / "models" / "ocr_training",
+        log_path=PROJECT_ROOT / "data" / "ocr_training.log",
+    )
+    app.config["RUNNER"] = runner
 
     @app.route("/")
     def index():
@@ -202,6 +211,30 @@ def create_app(store):
             result=result,
             error=error,
         )
+
+    @app.route("/train")
+    def train_page():
+        return render_template(
+            "train.html",
+            counts=store.counts_by_status(),
+            state=runner.state(),
+            log=runner.read_log(),
+            tool_available=importlib.util.find_spec("fast_plate_ocr") is not None,
+            output_dir=str(runner.output_dir),
+        )
+
+    @app.route("/train/start", methods=["POST"])
+    def train_start():
+        epochs = request.form.get("epochs") or 150
+        batch_size = request.form.get("batch_size") or 64
+        runner.start(epochs=epochs, batch_size=batch_size)
+        return redirect(url_for("train_page"))
+
+    @app.route("/train/status")
+    def train_status():
+        state = runner.state()
+        state["log"] = runner.read_log()
+        return jsonify(state)
 
     return app
 

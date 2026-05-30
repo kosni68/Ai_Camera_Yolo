@@ -71,7 +71,11 @@ Les plaques de plus de 7 caractères ou aux fichiers manquants sont ignorées (c
 
 L'entraînement utilise Keras/TensorFlow : **lent sur CPU, rapide sur GPU**.
 
-Voir les commandes à lancer :
+**Le plus simple : depuis la webapp.** Clique sur **🚀 Entrainer** (page `/train`), choisis le nombre
+d'epochs, puis lance. La page enchaîne export -> entraînement -> export ONNX **en arrière-plan** et
+affiche les **logs en direct** + le statut. (À faire sur la machine de dev, pas le Raspberry Pi.)
+
+En ligne de commande, voir les commandes à lancer :
 
 ```bash
 python -m src.training.train_ocr --dataset-dir data/ocr_dataset
@@ -145,6 +149,7 @@ caractères d'écart entre la lecture et une plaque de `config/registered_plates
 - `import_plates.py` — importe des crops déjà sauvegardés (`data/plates/`) dans la base
 - `review_app.py` + `templates/review.html` — webapp de validation
 - `templates/evaluate.html` — page de test/évaluation du modèle (`/evaluate`)
+- `runner.py` + `templates/train.html` — lancement d'entraînement en arrière-plan (`/train`)
 - `export_dataset.py` — export au format fast-plate-ocr
-- `train_ocr.py` + `model_config.example.yaml` — assistant d'entraînement
+- `train_ocr.py` + `model_config.example.yaml` — assistant d'entraînement (CLI)
 - backend de déploiement : [../ocr/backends/fast_plate.py](../ocr/backends/fast_plate.py)

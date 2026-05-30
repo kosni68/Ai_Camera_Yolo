@@ -19,13 +19,24 @@ deployer (voir ocr_backend dans config.json).
 
 import argparse
 import glob
+import importlib.util
 import os
-import shutil
 import subprocess
 import sys
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_MODEL_CONFIG = os.path.join(THIS_DIR, "model_config.example.yaml")
+
+# Le CLI fast-plate-ocr s'installe comme commande "fast-plate-ocr" (tirets), mais le
+# module python est "fast_plate_ocr" (underscores) : chercher la commande par son nom
+# echoue selon le systeme. On l'invoque via "python -m" sur le module CLI, ce qui est
+# fiable, independant du PATH, et garantit le meme interpreteur (donc le bon venv).
+FAST_PLATE_OCR_CLI = [sys.executable, "-m", "fast_plate_ocr.cli.cli"]
+
+
+def _fast_plate_ocr_available():
+    """True si le module fast_plate_ocr est importable dans cet interpreteur."""
+    return importlib.util.find_spec("fast_plate_ocr") is not None
 
 
 def _require_files(dataset_dir):
@@ -47,7 +58,7 @@ def _require_files(dataset_dir):
 def build_commands(dataset_dir, model_config, output_dir, epochs, batch_size):
     train_csv, val_csv, plate_config = _require_files(dataset_dir)
     train_cmd = [
-        "fast_plate_ocr", "train",
+        *FAST_PLATE_OCR_CLI, "train",
         "--model-config-file", model_config,
         "--plate-config-file", plate_config,
         "--annotations", train_csv,
@@ -58,7 +69,7 @@ def build_commands(dataset_dir, model_config, output_dir, epochs, batch_size):
     ]
     # Le .keras est ecrit dans <output_dir>/<timestamp>/best.keras ; l'export se fait apres.
     export_cmd = [
-        "fast_plate_ocr", "export",
+        *FAST_PLATE_OCR_CLI, "export",
         "--model", "<output_dir>/<timestamp>/best.keras",
         "--plate-config-file", plate_config,
         "--format", "onnx",
@@ -112,9 +123,9 @@ def main():
         print("Relance avec --run pour executer automatiquement en local.")
         return
 
-    if shutil.which("fast_plate_ocr") is None:
+    if not _fast_plate_ocr_available():
         raise SystemExit(
-            "Commande 'fast_plate_ocr' introuvable. Installe d'abord :\n"
+            "Module 'fast_plate_ocr' introuvable. Installe d'abord :\n"
             "  pip install -r requirements/training.txt"
         )
 
@@ -128,7 +139,7 @@ def main():
         raise SystemExit(f"best.keras introuvable dans {args.output_dir}. Verifie les logs d'entrainement.")
 
     final_export = [
-        "fast_plate_ocr", "export",
+        *FAST_PLATE_OCR_CLI, "export",
         "--model", best_keras,
         "--plate-config-file", plate_config,
         "--format", "onnx",

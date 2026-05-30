@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lancer un entrainement</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #11151c; color: #e7edf3; display: flex; flex-direction: column;
+      align-items: center; min-height: 100vh; padding: 16px;
+    }
+    a { color: #61d095; }
+    .top { width: 100%; max-width: 820px; display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
+    .card { background: #1b2230; border-radius: 14px; padding: 22px; width: 100%; max-width: 820px; margin-bottom: 16px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .sub { color: #9fb0c3; font-size: 13px; margin-bottom: 14px; }
+    .warn { background: #2a2415; border: 1px solid #6b5a1f; color: #ffe08a; padding: 11px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
+    .err { background: #3a1f1f; border: 1px solid #8b3a3a; color: #ffb4b4; padding: 11px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
+    .row { display: flex; gap: 12px; }
+    .row > div { flex: 1; }
+    label.fld { display: block; font-size: 13px; color: #9fb0c3; margin: 6px 0 4px; }
+    input[type=number] { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #2c3950; background: #0c0f14; color: #fff; font-size: 14px; }
+    button { margin-top: 16px; width: 100%; padding: 13px; border: 0; border-radius: 10px; background: #2e8b57; color: #fff; font-weight: 600; font-size: 15px; cursor: pointer; }
+    button:disabled { background: #2c3950; color: #7c8aa0; cursor: not-allowed; }
+    .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
+    .b-idle { background: #2c3950; color: #c5d2e2; }
+    .b-running { background: #355c8b; color: #cfe4ff; }
+    .b-done { background: #2e8b57; color: #eafff2; }
+    .b-error { background: #8b3a3a; color: #ffd9d9; }
+    pre { background: #07090d; border-radius: 10px; padding: 14px; font-size: 12px; line-height: 1.5;
+          max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: #c9d6e5; }
+    .meta { font-size: 12px; color: #9fb0c3; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <a href="{{ url_for('index') }}">‹ Retour a la validation</a>
+    <span>Plaques etiquetees : <b style="color:#61d095">{{ counts.labeled }}</b></span>
+  </div>
+
+  <div class="card">
+    <h1>Lancer un entrainement</h1>
+    <div class="sub">Enchaine automatiquement : export du dataset -> entrainement -> export ONNX.
+      Le modele final ira dans <code>{{ output_dir }}/&lt;date&gt;/best.onnx</code>.</div>
+
+    <div class="warn">
+      ⚠️ L'entrainement est <b>lourd et long</b> (Keras/TensorFlow). Lance-le sur ta machine de dev
+      (idealement avec GPU), <b>pas sur le Raspberry Pi</b>. Pas de GPU ? Prefere Google Colab.
+      {% if counts.labeled < 50 %}<br>Tu n'as que {{ counts.labeled }} plaque(s) etiquetee(s) : c'est peu, vise ~200+ pour un bon resultat.{% endif %}
+    </div>
+
+    {% if not tool_available %}
+    <div class="err">
+      <code>fast_plate_ocr</code> introuvable. Installe d'abord l'outillage :
+      <code>pip install -r requirements/training.txt</code>
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('train_start') }}" id="form">
+      <div class="row">
+        <div>
+          <label class="fld" for="epochs">Epochs</label>
+          <input type="number" id="epochs" name="epochs" value="150" min="1" max="5000">
+        </div>
+        <div>
+          <label class="fld" for="batch_size">Batch size</label>
+          <input type="number" id="batch_size" name="batch_size" value="64" min="1" max="1024">
+        </div>
+      </div>
+      <button type="submit" id="startBtn">Lancer l'entrainement</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div>Statut : <span class="badge" id="badge"></span></div>
+    <div class="meta" id="meta"></div>
+    <pre id="log">{{ log or '(aucun log pour le moment)' }}</pre>
+    <div id="doneLink" style="display:none"><a href="{{ url_for('evaluate') }}">🧪 Tester le modele entraine ›</a></div>
+  </div>
+
+  <script>
+    const badge = document.getElementById('badge');
+    const meta = document.getElementById('meta');
+    const logEl = document.getElementById('log');
+    const startBtn = document.getElementById('startBtn');
+    const doneLink = document.getElementById('doneLink');
+    const toolAvailable = {{ 'true' if tool_available else 'false' }};
+
+    const LABELS = { idle: 'Inactif', running: 'En cours…', done: 'Termine', error: 'Echec' };
+
+    function render(state) {
+      const s = state.status || 'idle';
+      badge.textContent = LABELS[s] || s;
+      badge.className = 'badge b-' + s;
+      meta.textContent = [state.message, state.started_at ? 'Debut: ' + state.started_at : '',
+                          state.finished_at ? 'Fin: ' + state.finished_at : ''].filter(Boolean).join(' · ');
+      if (typeof state.log === 'string') {
+        const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 30;
+        logEl.textContent = state.log || '(aucun log pour le moment)';
+        if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+      }
+      const running = s === 'running';
+      startBtn.disabled = running || !toolAvailable;
+      startBtn.textContent = running ? 'Entrainement en cours…' : "Lancer l'entrainement";
+      doneLink.style.display = (s === 'done') ? 'block' : 'none';
+    }
+
+    async function poll() {
+      try {
+        const r = await fetch('{{ url_for("train_status") }}');
+        render(await r.json());
+      } catch (e) { /* ignore */ }
+    }
+    poll();
+    setInterval(poll, 3000);
+  </script>
+</body>
+</html>

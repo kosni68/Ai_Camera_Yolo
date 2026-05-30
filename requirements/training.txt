@@ -1,5 +1,19 @@
 # Outillage de la boucle d'apprentissage OCR (collecte -> validation -> export -> entrainement).
 # A installer sur la machine qui fait la validation et/ou l'entrainement (PC de dev ou Colab).
+#
+# Installer avec (la 2e etape est OBLIGATOIRE sous Windows, voir note ci-dessous) :
+#   pip install -r requirements/training.txt
+#   pip install --force-reinstall --no-deps opencv-python
+#
+# IMPORTANT — piege OpenCV "headless" :
+#   fast-plate-ocr[train] depend de `opencv-python-headless`, qui fournit le meme
+#   module `cv2` mais SANS support de fenetres. Une fois installe il ecrase la
+#   version complete `opencv-python` et casse cv2.namedWindow / cv2.imshow dans
+#   src.main ("The function is not implemented. Rebuild the library with Windows ...").
+#   Lister opencv-python ici ne suffit PAS : pip installe quand meme la version
+#   headless (dependance dure de fast-plate-ocr), et c'est la derniere installee
+#   qui gagne. Le correctif fiable est le force-reinstall ci-dessus, lance APRES
+#   ce fichier, pour restaurer le build avec GUI.
 
 # Webapp de validation/correction des plaques (legere).
 flask>=3.0
@@ -7,7 +21,14 @@ flask>=3.0
 # Lecture/ecriture des configs YAML (souvent deja present via d'autres paquets).
 pyyaml>=5.1
 
-# Entrainement + export ONNX du modele OCR.
+# Entrainement + export ONNX du modele OCR (extra [train]) ET inference OCR au
+# runtime (extra [onnx], qui installe onnxruntime). Sans [onnx], `import
+# fast_plate_ocr` plante avec "ONNX Runtime is not installed" et l'UI web /
+# src.main reportent la lib comme introuvable.
 # LOURD : tire keras / tensorflow / albumentations. A reserver a une machine de dev
 # (idealement avec GPU) ou a Google Colab. Inutile sur le Raspberry Pi de production.
-fast-plate-ocr[train]
+fast-plate-ocr[train,onnx]
+
+# OpenCV complet (fonctions de fenetres / GUI) — garde explicite pour documenter
+# l'intention. Voir la note "piege OpenCV headless" en haut de ce fichier.
+opencv-python>=4.8
