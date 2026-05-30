@@ -1,9 +1,9 @@
 current_plate=
 consecutive_reads=0
-ocr_jobs_processed=1
+ocr_jobs_processed=2
 ocr_success_stabilized=0
-ocr_failure_total=1
-ocr_failure_non_french=0
+ocr_failure_total=2
+ocr_failure_non_french=1
 ocr_failure_unstable=0
 ocr_failure_empty=1
 ocr_success_rate_pct=0.0

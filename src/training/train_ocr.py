@@ -25,13 +25,24 @@ import subprocess
 import sys
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(THIS_DIR))
 DEFAULT_MODEL_CONFIG = os.path.join(THIS_DIR, "model_config.example.yaml")
+
+# Export ONNX : on passe par notre module wrapper (et non par "fast-plate-ocr export"
+# directement) car fast_plate_ocr 1.1.0 plante l'export ONNX sous Windows (verrou sur
+# un NamedTemporaryFile). Voir src/training/fpo_onnx_export.py.
+FAST_PLATE_OCR_EXPORT_CLI = [sys.executable, "-m", "src.training.fpo_onnx_export"]
 
 # Le CLI fast-plate-ocr s'installe comme commande "fast-plate-ocr" (tirets), mais le
 # module python est "fast_plate_ocr" (underscores) : chercher la commande par son nom
-# echoue selon le systeme. On l'invoque via "python -m" sur le module CLI, ce qui est
-# fiable, independant du PATH, et garantit le meme interpreteur (donc le bon venv).
-FAST_PLATE_OCR_CLI = [sys.executable, "-m", "fast_plate_ocr.cli.cli"]
+# echoue selon le systeme. On NE PEUT PAS utiliser "python -m fast_plate_ocr.cli.cli" :
+# ce module definit le groupe click "main_cli" mais n'a aucun bloc __main__, donc "-m"
+# l'importe et sort en silence (code 0) sans rien lancer. On appelle donc main_cli()
+# explicitement via "-c", ce qui est fiable, independant du PATH, et garantit le meme
+# interpreteur (donc le bon venv). click lit les arguments dans sys.argv[1:].
+FAST_PLATE_OCR_CLI = [
+    sys.executable, "-c", "from fast_plate_ocr.cli.cli import main_cli; main_cli()"
+]
 
 
 def _fast_plate_ocr_available():
@@ -69,7 +80,7 @@ def build_commands(dataset_dir, model_config, output_dir, epochs, batch_size):
     ]
     # Le .keras est ecrit dans <output_dir>/<timestamp>/best.keras ; l'export se fait apres.
     export_cmd = [
-        *FAST_PLATE_OCR_CLI, "export",
+        *FAST_PLATE_OCR_EXPORT_CLI,
         "--model", "<output_dir>/<timestamp>/best.keras",
         "--plate-config-file", plate_config,
         "--format", "onnx",
@@ -90,10 +101,10 @@ def _latest_best_keras(output_dir):
     return max(matches, key=os.path.getmtime)
 
 
-def _run(cmd, env):
+def _run(cmd, env, cwd=None):
     printable = " ".join(cmd)
     print(f"\n[TRAIN] $ {printable}")
-    completed = subprocess.run(cmd, env=env)
+    completed = subprocess.run(cmd, env=env, cwd=cwd)
     if completed.returncode != 0:
         raise SystemExit(f"Commande echouee (code {completed.returncode}): {printable}")
 
@@ -139,12 +150,13 @@ def main():
         raise SystemExit(f"best.keras introuvable dans {args.output_dir}. Verifie les logs d'entrainement.")
 
     final_export = [
-        *FAST_PLATE_OCR_CLI, "export",
+        *FAST_PLATE_OCR_EXPORT_CLI,
         "--model", best_keras,
         "--plate-config-file", plate_config,
         "--format", "onnx",
     ]
-    _run(final_export, env)
+    # cwd=PROJECT_ROOT pour que "src.training.fpo_onnx_export" soit importable via -m.
+    _run(final_export, env, cwd=PROJECT_ROOT)
 
     onnx_path = os.path.splitext(best_keras)[0] + ".onnx"
     print("\n[TRAIN] Termine.")

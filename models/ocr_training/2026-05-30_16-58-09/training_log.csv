@@ -1,0 +1,2 @@
+epoch,acc,char_acc,len_acc,loss,top3_acc,val_acc,val_char_acc,val_len_acc,val_loss,val_top3_acc
+0,0.0,0.0,1.0,3.6117920875549316,0.005291005130857229,0.0,0.2857142984867096,1.0,2.7316994667053223,0.5714285969734192

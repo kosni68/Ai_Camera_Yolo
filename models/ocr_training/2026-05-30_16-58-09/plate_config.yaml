@@ -1,0 +1,7 @@
+# Config de preprocessing fast-plate-ocr (genere automatiquement).
+max_plate_slots: 7
+alphabet: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+pad_char: "_"
+img_height: 70
+img_width: 140
+image_color_mode: grayscale

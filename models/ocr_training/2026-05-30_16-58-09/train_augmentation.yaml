@@ -1,0 +1,122 @@
+__version__: 2.0.8
+transform:
+  __class_fullname__: Compose
+  additional_targets: {}
+  bbox_params: null
+  is_check_shapes: true
+  keypoint_params: null
+  p: 1.0
+  transforms:
+  - __class_fullname__: Affine
+    balanced_scale: false
+    border_mode: 0
+    fill:
+    - 0.0
+    - 0.0
+    - 0.0
+    fill_mask: 0.0
+    fit_output: false
+    interpolation: 1
+    keep_ratio: false
+    mask_interpolation: 0
+    p: 0.65
+    rotate:
+    - -12.0
+    - 12.0
+    rotate_method: largest_box
+    scale:
+      x:
+      - 0.8
+      - 1.1
+      y:
+      - 0.8
+      - 1.1
+    shear:
+      x:
+      - 0.0
+      - 0.0
+      y:
+      - 0.0
+      - 0.0
+    translate_percent:
+      x:
+      - -0.02
+      - 0.02
+      y:
+      - -0.02
+      - 0.02
+    translate_px: null
+  - __class_fullname__: RandomBrightnessContrast
+    brightness_by_max: true
+    brightness_limit:
+    - -0.1
+    - 0.1
+    contrast_limit:
+    - -0.1
+    - 0.1
+    ensure_safe_range: false
+    p: 0.4
+  - __class_fullname__: Downscale
+    interpolation_pair:
+      downscale: 3
+      upscale: 1
+    p: 0.1
+    scale_range:
+    - 0.75
+    - 0.95
+  - __class_fullname__: GaussianBlur
+    blur_limit:
+    - 0
+    - 0
+    p: 0.2
+    sigma_limit:
+    - 0.2
+    - 0.5
+  - __class_fullname__: OneOf
+    p: 0.1
+    transforms:
+    - __class_fullname__: Morphological
+      operation: dilation
+      p: 0.5
+      scale:
+      - 1
+      - 2
+    - __class_fullname__: Morphological
+      operation: erosion
+      p: 0.5
+      scale:
+      - 1
+      - 2
+  - __class_fullname__: OneOf
+    p: 0.25
+    transforms:
+    - __class_fullname__: CoarseDropout
+      fill: 0.0
+      fill_mask: null
+      hole_height_range:
+      - 1
+      - 5
+      hole_width_range:
+      - 1
+      - 5
+      num_holes_range:
+      - 1
+      - 8
+      p: 0.2
+    - __class_fullname__: PixelDropout
+      drop_value: 0.0
+      dropout_prob: 0.02
+      mask_drop_value: null
+      p: 0.2
+      per_channel: false
+    - __class_fullname__: GridDropout
+      fill: random
+      fill_mask: null
+      holes_number_xy: null
+      p: 0.2
+      random_offset: true
+      ratio: 0.2
+      shift_xy:
+      - 0
+      - 0
+      unit_size_range: null

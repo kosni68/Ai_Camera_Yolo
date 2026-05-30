@@ -1,0 +1,57 @@
+# Architecture du modele OCR (fast-plate-ocr, format CCT) - POINT DE DEPART.
+#
+# C'est un petit modele "from scratch" volontairement compact, pense pour un
+# Raspberry Pi. Il est valide selon le schema fast-plate-ocr 1.1.0 mais n'a pas
+# ete optimise : pour de meilleurs resultats avec peu de donnees, prefere le
+# FINE-TUNING d'un modele pre-entraine via le notebook officiel
+# (examples/fine_tune_workflow.ipynb), qui fournit une architecture eprouvee.
+#
+# Contraintes a respecter si tu modifies : transformer_encoder.units[-1] doit
+# etre egal a projection_dim.
+
+model: cct
+
+rescaling:
+  scale: 0.00392156862745098   # 1/255
+  offset: 0.0
+
+tokenizer:
+  patch_size: 1
+  positional_emb: true
+  blocks:
+    - layer: Conv2D
+      filters: 64
+      kernel_size: 3
+      activation: relu
+    - layer: BatchNormalization
+    - layer: MaxPooling2D
+      pool_size: 3
+      strides: 2
+      padding: same
+    - layer: Conv2D
+      filters: 128
+      kernel_size: 3
+      activation: relu
+    - layer: BatchNormalization
+    - layer: MaxPooling2D
+      pool_size: 3
+      strides: 2
+      padding: same
+    - layer: Conv2D
+      filters: 128
+      kernel_size: 3
+      activation: relu
+    - layer: MaxPooling2D
+      pool_size: 3
+      strides: 2
+      padding: same
+
+transformer_encoder:
+  layers: 2
+  heads: 4
+  projection_dim: 128
+  units: [256, 128]   # units[-1] == projection_dim
+  activation: gelu
+  stochastic_depth: 0.1
+  attention_dropout: 0.1
+  mlp_dropout: 0.1
