@@ -105,6 +105,60 @@ def is_french_plate(text):
     return match_french_plate(text) is not None
 
 
+def _levenshtein(a, b):
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+
+    previous = list(range(len(b) + 1))
+    for i, char_a in enumerate(a, start=1):
+        current = [i]
+        for j, char_b in enumerate(b, start=1):
+            cost = 0 if char_a == char_b else 1
+            current.append(
+                min(
+                    previous[j] + 1,         # suppression
+                    current[j - 1] + 1,      # insertion
+                    previous[j - 1] + cost,  # substitution
+                )
+            )
+        previous = current
+    return previous[-1]
+
+
+def correct_against_whitelist(plate, registered_plates, max_distance=1):
+    """Rapproche une lecture OCR d'une plaque enregistree (tolerance Levenshtein).
+
+    `registered_plates` : iterable de plaques (la comparaison se fait sur la forme
+    normalisee, sans tiret ni casse). Renvoie la plaque enregistree normalisee la plus
+    proche si l'ecart est <= max_distance ET sans ambiguite (pas deux candidats a egalite),
+    sinon None. Avec max_distance=0, seuls les matchs exacts sont renvoyes.
+    """
+    target = normalize_ocr_text(plate)
+    if not target or not registered_plates or max_distance < 0:
+        return None
+
+    best = None
+    best_distance = max_distance + 1
+    ambiguous = False
+    for candidate in registered_plates:
+        candidate_norm = normalize_ocr_text(candidate)
+        if abs(len(candidate_norm) - len(target)) > max_distance:
+            continue
+        distance = _levenshtein(target, candidate_norm)
+        if distance < best_distance:
+            best, best_distance, ambiguous = candidate_norm, distance, False
+        elif distance == best_distance and candidate_norm != best:
+            ambiguous = True
+
+    if best is None or best_distance > max_distance or ambiguous:
+        return None
+    return best
+
+
 def format_french_plate(text):
     match = match_french_plate(text)
     if match is not None:

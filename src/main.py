@@ -27,7 +27,10 @@ from src.detection.yolo import (
     save_plate_image,
     should_run_detector_now,
 )
+from src.ocr.plate_text import correct_against_whitelist
 from src.ocr.worker import PlateOcrWorker
+from src.training.collector import SampleCollector
+from src.training.dataset_store import DatasetStore
 from src.utils.drawing import draw_fps_info
 from src.utils.logging import (
     active_history_label,
@@ -162,6 +165,9 @@ def main():
     ocr_fast_mode_enabled = config["ocr_fast_mode_enabled"]
     ocr_submit_interval_sec = config["ocr_submit_interval_sec"]
     ocr_same_crop_retry_sec = config["ocr_same_crop_retry_sec"]
+    ocr_backend = config["ocr_backend"]
+    fast_plate_ocr_model_path = config["fast_plate_ocr_model_path"]
+    fast_plate_ocr_config_path = config["fast_plate_ocr_config_path"]
     secondary_plate_detector_enabled = config["secondary_plate_detector_enabled"]
     secondary_plate_detector_model_path = config["secondary_plate_detector_model_path"]
     save_detections_enabled = config["save_detections_enabled"]
@@ -177,6 +183,8 @@ def main():
 
     mqtt_config = config["mqtt"]
     registered_plates_path = config["registered_plates_path"]
+    registered_plate_fuzzy_distance = config["registered_plate_fuzzy_distance"]
+    dataset_config = config["dataset"]
 
     print(f"[CONFIG] Loaded {CONFIG_PATH}")
     print(f"[CONFIG] RTSP URL: {rtsp_url}")
@@ -189,6 +197,7 @@ def main():
             f"[CONFIG] OCR cadence: submit={ocr_submit_interval_sec:.2f}s "
             f"same-crop-retry={ocr_same_crop_retry_sec:.2f}s"
         )
+        print(f"[CONFIG] OCR backend: {ocr_backend}")
     print(f"[CONFIG] Secondary plate detector: {'ON' if secondary_plate_detector_enabled else 'OFF'}")
     print(f"[CONFIG] Secondary plate detector model: {secondary_plate_detector_model_path}")
     print(f"[CONFIG] Save detections: {'ON' if save_detections_enabled else 'OFF'}")
@@ -248,10 +257,21 @@ def main():
                 crop = last_plate_crop[0]
             if crop is not None:
                 save_plate_image(crop, plate_save_root, plate_text=plate)
+        matched_plate = None
         if is_registered_plate(plate, registered_plates):
-            print(f"[ACCESS] Plaque autorisee: {plate} -> signal Shelly")
+            matched_plate = plate
+        elif registered_plate_fuzzy_distance > 0:
+            fuzzy = correct_against_whitelist(
+                plate, registered_plates, max_distance=registered_plate_fuzzy_distance
+            )
+            if fuzzy is not None:
+                matched_plate = fuzzy
+                print(f"[ACCESS] Correction floue: '{plate}' ~= '{fuzzy}' (liste blanche)")
+
+        if matched_plate is not None:
+            print(f"[ACCESS] Plaque autorisee: {matched_plate} -> signal Shelly")
             if mqtt_trigger is not None:
-                mqtt_trigger.trigger(plate)
+                mqtt_trigger.trigger(matched_plate)
         else:
             print(f"[ACCESS] Plaque non enregistree: {plate}")
 
@@ -261,6 +281,7 @@ def main():
     model = None
     license_plate_detector_model = None
     motion_detector = None
+    dataset_store = None
 
     try:
         frame_grabber.start()
@@ -296,12 +317,31 @@ def main():
             print(f"[DETECTION] Min confidence: {detection_save_min_confidence:.2f}")
 
         if ocr_enabled:
+            sample_collector = None
+            if dataset_config["enabled"]:
+                dataset_store = DatasetStore(dataset_config["db_path"])
+                sample_collector = SampleCollector(
+                    dataset_store,
+                    dataset_config["image_root"],
+                    dedup_window_sec=dataset_config["dedup_window_sec"],
+                    max_per_minute=dataset_config["max_per_minute"],
+                )
+                print(
+                    f"[DATASET] Collecte ON | db={dataset_config['db_path']} "
+                    f"| images={dataset_config['image_root']}"
+                )
+            else:
+                print("[DATASET] Collecte OFF")
             ocr_worker = PlateOcrWorker(
                 LOG_FILE_PATH,
                 fast_mode_enabled=ocr_fast_mode_enabled,
                 submit_interval_sec=ocr_submit_interval_sec,
                 same_crop_retry_sec=ocr_same_crop_retry_sec,
                 on_stable_plate=on_stable_plate,
+                collector=sample_collector,
+                ocr_backend=ocr_backend,
+                fast_plate_ocr_model_path=fast_plate_ocr_model_path,
+                fast_plate_ocr_config_path=fast_plate_ocr_config_path,
             )
             ocr_worker.start()
         else:
@@ -457,6 +497,8 @@ def main():
         if ocr_worker is not None:
             ocr_worker.stop()
             ocr_worker.join(timeout=2)
+        if dataset_store is not None:
+            dataset_store.close()
         if mqtt_trigger is not None:
             mqtt_trigger.disconnect()
         frame_grabber.stop()

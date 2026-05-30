@@ -2,3 +2,9 @@
 easyocr==1.7.2
 numpy<=2.1.1
 opencv-python==4.11.0.86
+
+# Pour DEPLOYER un modele OCR entraine (config ocr_backend="fast_plate_ocr"), installe :
+#   pip install "fast-plate-ocr[onnx]"
+# Note : fast-plate-ocr peut tirer numpy 2.x. Si tu gardes easyocr (numpy<=2.1.1) et
+# torch dans le meme environnement, verifie la compatibilite des versions de numpy.
+

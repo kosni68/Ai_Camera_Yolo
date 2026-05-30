@@ -1,0 +1,13 @@
+# Outillage de la boucle d'apprentissage OCR (collecte -> validation -> export -> entrainement).
+# A installer sur la machine qui fait la validation et/ou l'entrainement (PC de dev ou Colab).
+
+# Webapp de validation/correction des plaques (legere).
+flask>=3.0
+
+# Lecture/ecriture des configs YAML (souvent deja present via d'autres paquets).
+pyyaml>=5.1
+
+# Entrainement + export ONNX du modele OCR.
+# LOURD : tire keras / tensorflow / albumentations. A reserver a une machine de dev
+# (idealement avec GPU) ou a Google Colab. Inutile sur le Raspberry Pi de production.
+fast-plate-ocr[train]

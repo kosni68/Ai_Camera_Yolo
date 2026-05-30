@@ -193,11 +193,20 @@ Ai_Camera_Yolo/
     │   ├── yolo.py          # Chargement YOLO, extraction detections, ROI, sauvegarde
     │   └── plate.py         # Second modele : recadrage plaque
     ├── ocr/
-    │   ├── worker.py        # PlateOcrWorker + backends EasyOCR/Tesseract
-    │   └── plate_text.py    # Matching format FR, preprocessing image
+    │   ├── worker.py        # PlateOcrWorker + backends EasyOCR/Tesseract/fast-plate-ocr
+    │   ├── plate_text.py    # Matching format FR, fuzzy liste blanche, preprocessing
+    │   └── backends/
+    │       └── fast_plate.py # Inference du modele OCR entraine (fast-plate-ocr)
+    ├── training/            # Boucle d'apprentissage OCR (voir src/training/README.md)
+    │   ├── dataset_store.py  # Index SQLite des echantillons collectes
+    │   ├── collector.py      # Sauvegarde crop + lecture OCR (branche au worker)
+    │   ├── review_app.py     # Webapp de validation/correction
+    │   ├── export_dataset.py # Export au format fast-plate-ocr
+    │   └── train_ocr.py      # Assistant d'entrainement + export ONNX
     └── utils/
         ├── drawing.py       # Overlay FPS
-        └── logging.py       # Ecriture atomique, historique journalier
+        ├── logging.py       # Ecriture atomique, historique journalier
+        └── mqtt_client.py   # Declenchement Shelly via MQTT
 ```
 
 ## Windows setup
@@ -238,6 +247,12 @@ Notes utiles :
 - `fps_limit` plafonne la boucle principale.
 - `detector_fps_limit` cadence les inferences YOLO pour reduire la charge CPU.
 - `roi_enabled`, `roi_x`, `roi_y`, `roi_width` et `roi_height` limitent l'analyse a une zone normalisee.
+- `registered_plate_fuzzy_distance` tolere N caracteres d'ecart entre la lecture OCR et une plaque enregistree (`0` = correspondance exacte).
+- `dataset_collection_enabled` active la collecte d'echantillons (crops + lectures OCR) pour entrainer un modele de lecture.
+- `dataset_db_path` et `dataset_image_root` emplacements de la base SQLite et des crops collectes.
+- `dataset_dedup_window_sec` et `dataset_max_per_minute` garde-fous anti-saturation de la collecte.
+- `ocr_backend` choisit le moteur de lecture : `auto` (EasyOCR/Tesseract) ou `fast_plate_ocr` (ton modele entraine).
+- `fast_plate_ocr_model_path` et `fast_plate_ocr_config_path` chemins du modele ONNX entraine et de sa config.
 
 ## Ubuntu setup
 
@@ -283,6 +298,38 @@ Notes :
 - EasyOCR n'est pas inclus dans l'image de base ; si besoin, ajoute `requirements/optional.txt` dans le `Dockerfile`.
 
 ---
+
+## Entrainer ton propre modele OCR (human-in-the-loop)
+
+Tu peux entrainer un modele de **lecture** de plaques specialise sur tes plaques et ta camera, en
+validant/corrigeant toi-meme les lectures. Le cycle : collecte automatique des crops + lectures ->
+validation/correction via une webapp -> export d'un dataset etiquete -> entrainement
+(`fast-plate-ocr`) -> deploiement du modele dans le pipeline.
+
+Demarrage rapide :
+
+```bash
+# 1. Activer la collecte dans config/config.json : "dataset_collection_enabled": true
+python -m src.main
+
+# 2. Valider/corriger les lectures depuis le navigateur
+pip install -r requirements/training.txt
+python -m src.training.review_app --host 0.0.0.0 --port 5000
+
+# 3. Exporter le dataset etiquete
+python -m src.training.export_dataset --out data/ocr_dataset
+
+# 4. Entrainer (voir les commandes ; --run pour executer, ou Colab sans GPU)
+python -m src.training.train_ocr --dataset-dir data/ocr_dataset
+
+# 5. Deployer : copier best.onnx + plate_config.yaml dans models/, puis dans config.json
+#    "ocr_backend": "fast_plate_ocr" + les chemins fast_plate_ocr_*
+```
+
+Guide complet pas a pas : [src/training/README.md](src/training/README.md).
+
+En bonus, `registered_plate_fuzzy_distance` fiabilise l'ouverture du portail des maintenant en tolerant
+une erreur OCR d'un caractere par rapport aux plaques enregistrees.
 
 ## Benchmark CPU RTSP live
 

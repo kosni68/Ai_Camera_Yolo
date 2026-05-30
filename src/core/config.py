@@ -187,6 +187,41 @@ def load_runtime_config(config_path=None):
     if not registered_plates_path.is_absolute():
         registered_plates_path = PROJECT_ROOT / registered_plates_path
 
+    registered_plate_fuzzy_distance = int(raw_config.get("registered_plate_fuzzy_distance", 1))
+    if registered_plate_fuzzy_distance < 0:
+        raise RuntimeError("Configuration key 'registered_plate_fuzzy_distance' must be >= 0.")
+
+    dataset_collection_enabled = raw_config.get("dataset_collection_enabled", False)
+    if not isinstance(dataset_collection_enabled, bool):
+        raise RuntimeError("Configuration key 'dataset_collection_enabled' must be a boolean.")
+
+    dataset_db_path = Path(str(raw_config.get("dataset_db_path", "data/dataset/samples.db")).strip())
+    if not dataset_db_path.is_absolute():
+        dataset_db_path = PROJECT_ROOT / dataset_db_path
+
+    dataset_image_root = Path(str(raw_config.get("dataset_image_root", "data/dataset/images")).strip())
+    if not dataset_image_root.is_absolute():
+        dataset_image_root = PROJECT_ROOT / dataset_image_root
+
+    dataset_dedup_window_sec = float(raw_config.get("dataset_dedup_window_sec", 8.0))
+    dataset_max_per_minute = int(raw_config.get("dataset_max_per_minute", 30))
+    if dataset_dedup_window_sec < 0:
+        raise RuntimeError("Configuration key 'dataset_dedup_window_sec' must be >= 0.")
+    if dataset_max_per_minute <= 0:
+        raise RuntimeError("Configuration key 'dataset_max_per_minute' must be greater than 0.")
+
+    ocr_backend = str(raw_config.get("ocr_backend", "auto")).strip().lower()
+    if ocr_backend not in ("auto", "fast_plate_ocr"):
+        raise RuntimeError("Configuration key 'ocr_backend' must be 'auto' or 'fast_plate_ocr'.")
+
+    fast_plate_ocr_model_path = Path(str(raw_config.get("fast_plate_ocr_model_path", "models/fast_plate_ocr.onnx")).strip())
+    if not fast_plate_ocr_model_path.is_absolute():
+        fast_plate_ocr_model_path = PROJECT_ROOT / fast_plate_ocr_model_path
+
+    fast_plate_ocr_config_path = Path(str(raw_config.get("fast_plate_ocr_config_path", "models/fast_plate_ocr_config.yaml")).strip())
+    if not fast_plate_ocr_config_path.is_absolute():
+        fast_plate_ocr_config_path = PROJECT_ROOT / fast_plate_ocr_config_path
+
     effective_detector_fps_limit = min(detector_fps_limit, fps_limit)
     detector_interval = 1.0 / effective_detector_fps_limit
 
@@ -237,6 +272,17 @@ def load_runtime_config(config_path=None):
             "pulse_duration_sec": shelly_pulse_duration_sec,
         },
         "registered_plates_path": registered_plates_path,
+        "registered_plate_fuzzy_distance": registered_plate_fuzzy_distance,
+        "dataset": {
+            "enabled": dataset_collection_enabled,
+            "db_path": dataset_db_path,
+            "image_root": dataset_image_root,
+            "dedup_window_sec": dataset_dedup_window_sec,
+            "max_per_minute": dataset_max_per_minute,
+        },
+        "ocr_backend": ocr_backend,
+        "fast_plate_ocr_model_path": fast_plate_ocr_model_path,
+        "fast_plate_ocr_config_path": fast_plate_ocr_config_path,
     }
 
 

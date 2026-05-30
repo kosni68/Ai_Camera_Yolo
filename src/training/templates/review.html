@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Validation plaques</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #11151c; color: #e7edf3; display: flex; flex-direction: column;
+      align-items: center; min-height: 100vh; padding: 16px;
+    }
+    .stats { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-bottom: 14px; font-size: 14px; }
+    .stats span { background: #1b2230; padding: 6px 12px; border-radius: 8px; }
+    .stats b { color: #61d095; }
+    .card {
+      background: #1b2230; border-radius: 14px; padding: 22px; width: 100%; max-width: 560px;
+      box-shadow: 0 8px 30px rgba(0,0,0,.35);
+    }
+    .plate-img {
+      display: block; width: 100%; max-height: 320px; object-fit: contain;
+      background: #0c0f14; border-radius: 10px; padding: 10px; margin-bottom: 16px;
+    }
+    .meta { font-size: 13px; color: #9fb0c3; line-height: 1.7; margin-bottom: 14px; }
+    .meta code { background: #0c0f14; padding: 1px 6px; border-radius: 5px; color: #ffd479; }
+    label.fld { display: block; font-size: 13px; color: #9fb0c3; margin-bottom: 6px; }
+    input[type=text] {
+      width: 100%; font-size: 28px; letter-spacing: 3px; text-align: center; text-transform: uppercase;
+      padding: 12px; border-radius: 10px; border: 2px solid #2c3950; background: #0c0f14; color: #fff;
+    }
+    input[type=text]:focus { outline: none; border-color: #61d095; }
+    .row { display: flex; gap: 10px; margin-top: 16px; }
+    button, .btn {
+      flex: 1; font-size: 15px; padding: 12px; border-radius: 10px; border: 0; cursor: pointer;
+      font-weight: 600; text-decoration: none; text-align: center; color: #fff;
+    }
+    .ok { background: #2e8b57; } .ok:hover { background: #36a366; }
+    .reject { background: #8b3a3a; } .reject:hover { background: #a34646; }
+    .skip { background: #3a4760; } .skip:hover { background: #475878; }
+    .nav { display: flex; justify-content: space-between; margin-top: 18px; font-size: 13px; }
+    .nav a { color: #9fb0c3; text-decoration: none; }
+    .nav a:hover { color: #fff; }
+    .hint { font-size: 12px; color: #6f8298; margin-top: 16px; text-align: center; line-height: 1.7; }
+    .hint kbd { background: #0c0f14; border: 1px solid #2c3950; border-radius: 5px; padding: 1px 6px; }
+    .done { text-align: center; padding: 30px 0; }
+    .done h2 { color: #61d095; }
+  </style>
+</head>
+<body>
+  <div class="stats">
+    <span>En attente: <b>{{ counts.pending }}</b></span>
+    <span>Etiquetees: <b>{{ counts.labeled }}</b></span>
+    <span>Rejetees: <b>{{ counts.rejected }}</b></span>
+    <span>Total: <b>{{ counts.total }}</b></span>
+  </div>
+
+  {% if sample is none %}
+  <div class="card done">
+    <h2>Rien a valider 🎉</h2>
+    <p>Tous les echantillons en attente ont ete traites.</p>
+    <p class="meta">Lance l'export quand tu es pret : <code>python -m src.training.export_dataset</code></p>
+  </div>
+  {% else %}
+  <div class="card">
+    <img class="plate-img" src="{{ url_for('image', sample_id=sample.id) }}" alt="plaque #{{ sample.id }}">
+
+    <div class="meta">
+      Lecture OCR : <code>{{ sample.ocr_prediction or '(vide)' }}</code><br>
+      Confiance : {{ '%.2f'|format(sample.ocr_confidence) if sample.ocr_confidence is not none else '—' }}
+      &nbsp;|&nbsp; Moteur : {{ sample.ocr_backend or '—' }}
+      &nbsp;|&nbsp; Source : {{ sample.source }}<br>
+      #{{ sample.id }} &nbsp;|&nbsp; {{ sample.created_at }}
+    </div>
+
+    <form method="post" action="{{ url_for('label', sample_id=sample.id) }}" id="form">
+      <label class="fld" for="plate">Numero correct (corrige si besoin, sinon valide tel quel) :</label>
+      <input type="text" id="plate" name="label" value="{{ prefill }}" autocomplete="off"
+             autocapitalize="characters" spellcheck="false">
+      <div class="row">
+        <button type="submit" name="action" value="save" class="ok">Valider / Corriger</button>
+        <button type="submit" name="action" value="reject" class="reject">Rejeter</button>
+        <button type="submit" name="action" value="skip" class="skip">Passer</button>
+      </div>
+    </form>
+
+    <div class="nav">
+      {% if prv %}<a href="{{ url_for('review', sample_id=prv.id) }}">‹ Precedent</a>{% else %}<span></span>{% endif %}
+      {% if nxt %}<a href="{{ url_for('review', sample_id=nxt.id) }}">Suivant ›</a>{% else %}<span></span>{% endif %}
+    </div>
+
+    <div class="hint">
+      <kbd>Entree</kbd> valider/corriger &nbsp; <kbd>r</kbd> rejeter &nbsp; <kbd>p</kbd> passer<br>
+      <kbd>←</kbd> / <kbd>→</kbd> naviguer entre les captures
+    </div>
+  </div>
+
+  <script>
+    const input = document.getElementById('plate');
+    const form = document.getElementById('form');
+    if (input) { input.focus(); input.select(); }
+
+    function submitWith(action) {
+      const field = document.createElement('input');
+      field.type = 'hidden'; field.name = 'action'; field.value = action;
+      form.appendChild(field); form.submit();
+    }
+
+    document.addEventListener('keydown', (e) => {
+      const typing = document.activeElement === input;
+      if (e.key === 'Escape') { input && input.blur(); return; }
+      if (typing) return;  // ne pas capturer les touches quand on edite le champ
+      if (e.key === 'r' || e.key === 'R') { e.preventDefault(); submitWith('reject'); }
+      else if (e.key === 'p' || e.key === 'P') { e.preventDefault(); submitWith('skip'); }
+      else if (e.key === 'ArrowRight') { {% if nxt %}window.location='{{ url_for('review', sample_id=nxt.id) }}';{% endif %} }
+      else if (e.key === 'ArrowLeft') { {% if prv %}window.location='{{ url_for('review', sample_id=prv.id) }}';{% endif %} }
+    });
+  </script>
+  {% endif %}
+</body>
+</html>

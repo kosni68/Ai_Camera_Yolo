@@ -256,8 +256,24 @@ def run_tesseract_ocr(image, variant_names=None, config_names=None):
     return best_candidate
 
 
-def run_ocr(image, easyocr_reader=None, tesseract_path=None, runtime_options=None):
+def run_fast_plate_ocr(image, backend):
+    raw = backend.read(image)
+    if raw is None:
+        return None
+    return _build_candidate(
+        raw["raw"],
+        score=raw["score"],
+        backend="fast_plate_ocr",
+        char_scores=raw.get("char_scores"),
+        source="fast_plate",
+    )
+
+
+def run_ocr(image, easyocr_reader=None, tesseract_path=None, runtime_options=None, fast_plate_backend=None):
     runtime_options = runtime_options or build_ocr_runtime_options()
+
+    if fast_plate_backend is not None:
+        return run_fast_plate_ocr(image, fast_plate_backend)
 
     if easyocr_reader is not None:
         result = run_easyocr_ocr(
@@ -291,6 +307,10 @@ class PlateOcrWorker(threading.Thread):
         submit_interval_sec=0.35,
         same_crop_retry_sec=1.0,
         on_stable_plate=None,
+        collector=None,
+        ocr_backend="auto",
+        fast_plate_ocr_model_path=None,
+        fast_plate_ocr_config_path=None,
     ):
         super().__init__(daemon=True)
         self.queue = Queue(maxsize=queue_size)
@@ -325,6 +345,11 @@ class PlateOcrWorker(threading.Thread):
         self.ocr_init_lock = threading.Lock()
         self.runtime_options = build_ocr_runtime_options(fast_mode_enabled=fast_mode_enabled)
         self.on_stable_plate = on_stable_plate
+        self.collector = collector
+        self.ocr_backend = ocr_backend
+        self.fast_plate_ocr_model_path = fast_plate_ocr_model_path
+        self.fast_plate_ocr_config_path = fast_plate_ocr_config_path
+        self.fast_plate_backend = None
 
         if self.submit_interval_sec <= 0.0:
             raise ValueError("submit_interval_sec must be greater than 0.")
@@ -341,11 +366,19 @@ class PlateOcrWorker(threading.Thread):
             if self.ocr_initialized:
                 return self.ocr_available
 
-            self.easyocr_reader, self.tesseract_path = initialize_ocr_backend(self.runtime_options)
-            self.ocr_available = self.easyocr_reader is not None or self.tesseract_path is not None
+            if self.ocr_backend == "fast_plate_ocr":
+                self.fast_plate_backend = self._load_fast_plate_backend()
+
+            if self.fast_plate_backend is not None:
+                self.ocr_available = True
+            else:
+                self.easyocr_reader, self.tesseract_path = initialize_ocr_backend(self.runtime_options)
+                self.ocr_available = self.easyocr_reader is not None or self.tesseract_path is not None
             self.ocr_initialized = True
 
             print(f"[OCR] Profile: {self.runtime_options['profile']}")
+            if self.fast_plate_backend is not None:
+                print(f"[OCR] Backend fast-plate-ocr actif: {self.fast_plate_ocr_model_path}")
             if self.easyocr_reader is not None:
                 print("[OCR] EasyOCR active")
             if self.tesseract_path:
@@ -354,6 +387,18 @@ class PlateOcrWorker(threading.Thread):
                 print("[OCR] Tesseract introuvable. Definis TESSERACT_CMD ou relance scripts/setup_env.ps1.")
 
         return self.ocr_available
+
+    def _load_fast_plate_backend(self):
+        try:
+            from src.ocr.backends.fast_plate import FastPlateOcrBackend
+
+            return FastPlateOcrBackend(
+                self.fast_plate_ocr_model_path,
+                self.fast_plate_ocr_config_path,
+            )
+        except Exception as exc:
+            print(f"[OCR] fast-plate-ocr indisponible ({exc}); bascule sur EasyOCR/Tesseract.")
+            return None
 
     def _compute_signature(self, crop):
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
@@ -610,6 +655,7 @@ class PlateOcrWorker(threading.Thread):
                     easyocr_reader=self.easyocr_reader,
                     tesseract_path=self.tesseract_path,
                     runtime_options=self.runtime_options,
+                    fast_plate_backend=self.fast_plate_backend,
                 )
             except TesseractNotFoundError:
                 print("[OCR] Tesseract est installe mais n'a pas pu etre lance. Verifie le PATH ou TESSERACT_CMD.")
@@ -621,6 +667,21 @@ class PlateOcrWorker(threading.Thread):
             except Exception as exc:
                 print(f"[OCR] Erreur pendant la lecture de plaque: {exc}")
                 continue
+
+            if self.collector is not None:
+                try:
+                    if result is not None:
+                        self.collector.collect(
+                            crop,
+                            prediction=result["formatted"],
+                            confidence=result["score"],
+                            backend=result["backend"],
+                            source="ocr_read",
+                        )
+                    else:
+                        self.collector.collect(crop, prediction="", source="ocr_empty")
+                except Exception as exc:
+                    print(f"[DATASET] Erreur de collecte: {exc}")
 
             if result is None:
                 self._record_job_outcome("empty")
