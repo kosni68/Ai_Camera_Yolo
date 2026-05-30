@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tester le modele OCR</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #11151c; color: #e7edf3; display: flex; flex-direction: column;
+      align-items: center; min-height: 100vh; padding: 16px;
+    }
+    a { color: #61d095; }
+    .card { background: #1b2230; border-radius: 14px; padding: 22px; width: 100%; max-width: 760px; margin-bottom: 16px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .sub { color: #9fb0c3; font-size: 13px; margin-bottom: 16px; }
+    label.fld { display: block; font-size: 13px; color: #9fb0c3; margin: 10px 0 4px; }
+    input[type=text], input[type=number] {
+      width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #2c3950; background: #0c0f14; color: #fff; font-size: 14px;
+    }
+    button { margin-top: 16px; width: 100%; padding: 12px; border: 0; border-radius: 10px; background: #2e8b57; color: #fff; font-weight: 600; font-size: 15px; cursor: pointer; }
+    button:hover { background: #36a366; }
+    .err { background: #3a1f1f; border: 1px solid #8b3a3a; color: #ffb4b4; padding: 12px; border-radius: 8px; font-size: 13px; }
+    .metrics { display: flex; gap: 14px; margin: 4px 0 8px; }
+    .metric { flex: 1; background: #0c0f14; border-radius: 10px; padding: 16px; text-align: center; }
+    .metric .big { font-size: 34px; font-weight: 700; color: #61d095; }
+    .metric .lbl { font-size: 12px; color: #9fb0c3; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+    th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #222b3a; }
+    th { color: #9fb0c3; font-weight: 600; }
+    td img { height: 34px; border-radius: 4px; background: #000; }
+    .exp { color: #61d095; } .got { color: #ff9f6b; font-weight: 600; }
+    .top { width: 100%; max-width: 760px; display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <a href="{{ url_for('index') }}">‹ Retour a la validation</a>
+    <span>Etiquetees: <b style="color:#61d095">{{ counts.labeled }}</b></span>
+  </div>
+
+  <div class="card">
+    <h1>Tester le modele OCR</h1>
+    <div class="sub">Le modele est lance sur tes plaques deja validees/corrigees (la verite terrain).
+      Compare le score entre deux entrainements pour voir s'il s'ameliore.</div>
+
+    <form method="post" action="{{ url_for('evaluate') }}">
+      <label class="fld" for="model_path">Modele ONNX (.onnx)</label>
+      <input type="text" id="model_path" name="model_path" value="{{ model_path }}" placeholder="models/best.onnx">
+      <label class="fld" for="config_path">Config du modele (plate_config.yaml)</label>
+      <input type="text" id="config_path" name="config_path" value="{{ config_path }}" placeholder="models/plate_config.yaml">
+      <label class="fld" for="limit">Limiter aux N plus recentes (vide = toutes)</label>
+      <input type="number" id="limit" name="limit" value="{{ limit }}" min="1" placeholder="ex: 200">
+      <button type="submit">Evaluer</button>
+    </form>
+  </div>
+
+  {% if error %}
+  <div class="card"><div class="err">
+    Echec : {{ error }}<br><br>
+    Verifie que le modele existe (entraine-le d'abord) et que l'inference est installee :
+    <code>pip install "fast-plate-ocr[onnx]"</code>
+  </div></div>
+  {% endif %}
+
+  {% if result %}
+  <div class="card">
+    <div class="metrics">
+      <div class="metric">
+        <div class="big">{{ '%.1f'|format(result.plate_acc) }}%</div>
+        <div class="lbl">plaques exactes ({{ result.exact }}/{{ result.total }})</div>
+      </div>
+      <div class="metric">
+        <div class="big">{{ '%.1f'|format(result.char_acc) }}%</div>
+        <div class="lbl">caracteres corrects</div>
+      </div>
+    </div>
+
+    {% if result.errors %}
+    <h1 style="font-size:15px;margin-top:18px">Erreurs ({{ result.errors|length }})</h1>
+    <table>
+      <tr><th>Image</th><th>Attendu</th><th>Lu par le modele</th></tr>
+      {% for row in result.errors %}
+      <tr>
+        <td><img src="{{ url_for('image', sample_id=row.id) }}" alt="#{{ row.id }}"></td>
+        <td class="exp">{{ row.label }}</td>
+        <td class="got">{{ row.pred or '(vide)' }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p style="color:#61d095">Aucune erreur sur cet echantillon 🎉</p>
+    {% endif %}
+  </div>
+  {% endif %}
+</body>
+</html>

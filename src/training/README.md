@@ -35,6 +35,12 @@ python -m src.main
 `dataset_max_per_minute`). Laisse tourner quelques jours pour accumuler de la variété (jour/nuit,
 angles, météo). **Vise au moins ~200 plaques étiquetées** avant d'entraîner ; plus = mieux.
 
+> Tu as déjà des photos dans `data/plates/` (option `save_plates_enabled`) ? Importe-les dans la
+> base sans tout recollecter :
+> ```bash
+> python -m src.training.import_plates --folder data/plates
+> ```
+
 ## Étape 2 — Valider / corriger (webapp)
 
 Installe l'outillage (une fois) puis lance la webapp :
@@ -101,6 +107,14 @@ Installe l'inférence : `pip install "fast-plate-ocr[onnx]"` (voir la note numpy
 worker lit désormais avec ton modèle (`[OCR] Backend fast-plate-ocr actif`). Si le modèle est
 absent/illisible, il bascule automatiquement sur EasyOCR/Tesseract.
 
+## Mesurer si le modèle s'améliore
+
+Dans la webapp, clique sur **🧪 Tester le modèle** (page `/evaluate`). Indique le chemin du `.onnx`
+et de son `plate_config.yaml`, puis lance l'évaluation : le modèle est exécuté sur tes plaques
+**déjà validées** (la vérité terrain) et la page affiche le **% de plaques exactes**, la précision
+caractère et la liste des erreurs (vignette + attendu vs lu). Relance après chaque entraînement pour
+comparer. Astuce : note le score à chaque itération pour suivre la progression.
+
 ---
 
 ## Bonus — Ouverture fiable du portail (fuzzy-matching)
@@ -128,7 +142,9 @@ caractères d'écart entre la lecture et une plaque de `config/registered_plates
 
 - `dataset_store.py` — index SQLite (thread-safe)
 - `collector.py` — sauvegarde crop + insertion (branché au worker OCR)
+- `import_plates.py` — importe des crops déjà sauvegardés (`data/plates/`) dans la base
 - `review_app.py` + `templates/review.html` — webapp de validation
+- `templates/evaluate.html` — page de test/évaluation du modèle (`/evaluate`)
 - `export_dataset.py` — export au format fast-plate-ocr
 - `train_ocr.py` + `model_config.example.yaml` — assistant d'entraînement
 - backend de déploiement : [../ocr/backends/fast_plate.py](../ocr/backends/fast_plate.py)

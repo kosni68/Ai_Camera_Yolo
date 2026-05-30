@@ -54,6 +54,7 @@
     <span>Etiquetees: <b>{{ counts.labeled }}</b></span>
     <span>Rejetees: <b>{{ counts.rejected }}</b></span>
     <span>Total: <b>{{ counts.total }}</b></span>
+    <span><a href="{{ url_for('evaluate') }}" style="color:#61d095;text-decoration:none">🧪 Tester le modele</a></span>
   </div>
 
   {% if sample is none %}
