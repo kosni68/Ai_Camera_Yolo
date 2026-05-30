@@ -119,31 +119,62 @@ class TrainingRunner:
         }
 
     def list_models(self):
-        """Liste les modeles entraines prets a tester/deployer (newest first).
+        """Liste les modeles OCR prets a tester/deployer (entraines + d'origine).
 
-        Scanne <output_dir>/<run>/best.onnx avec son plate_config.yaml adjacent : pas
-        besoin de copier les fichiers a la main, on pointe directement sur le dossier
-        d'entrainement. Chaque entree expose les chemins absolus (pour l'inference) et
-        relatifs au projet (pour config.json), plus la val_acc finale si dispo.
+        Deux sources, sans copie manuelle de fichiers :
+          - les entrainements : <output_dir>/<run>/best.onnx + plate_config.yaml adjacent ;
+          - les modeles d'origine : <models>/*.onnx fournis avec le projet, avec leur
+            config compagnon (ex: fast_plate_ocr.onnx + fast_plate_ocr_config.yaml).
+        Chaque entree expose les chemins absolus (inference) et relatifs (config.json),
+        la val_acc finale si dispo, et `kind` ('trained' ou 'origin'). Trie : entraines
+        du plus recent au plus ancien, puis modeles d'origine.
         """
         models = []
-        for onnx_path in glob.glob(os.path.join(self.output_dir, "*", "best.onnx")):
-            run_dir = os.path.dirname(onnx_path)
-            config_path = os.path.join(run_dir, "plate_config.yaml")
-            if not os.path.isfile(config_path):
-                continue
+        seen = set()
+
+        def _add(name, kind, onnx_path, config_path, val_acc):
+            key = os.path.normcase(os.path.abspath(onnx_path))
+            if key in seen:
+                return
+            seen.add(key)
             models.append(
                 {
-                    "name": os.path.basename(run_dir),
+                    "name": name,
+                    "kind": kind,
                     "model_path": os.path.abspath(onnx_path),
                     "config_path": os.path.abspath(config_path),
                     "model_rel": _rel_to_root(onnx_path),
                     "config_rel": _rel_to_root(config_path),
                     "mtime": os.path.getmtime(onnx_path),
-                    "val_acc": _read_final_val_acc(os.path.join(run_dir, "training_log.csv")),
+                    "val_acc": val_acc,
                 }
             )
-        models.sort(key=lambda model: model["mtime"], reverse=True)
+
+        trained = []
+        for onnx_path in glob.glob(os.path.join(self.output_dir, "*", "best.onnx")):
+            run_dir = os.path.dirname(onnx_path)
+            config_path = os.path.join(run_dir, "plate_config.yaml")
+            if not os.path.isfile(config_path):
+                continue
+            trained.append((os.path.getmtime(onnx_path), run_dir, onnx_path, config_path))
+        for _, run_dir, onnx_path, config_path in sorted(trained, reverse=True):
+            _add(
+                os.path.basename(run_dir),
+                "trained",
+                onnx_path,
+                config_path,
+                _read_final_val_acc(os.path.join(run_dir, "training_log.csv")),
+            )
+
+        # Modeles d'origine fournis avec le projet (racine models/, hors ocr_training).
+        models_root = os.path.dirname(self.output_dir)
+        for onnx_path in sorted(glob.glob(os.path.join(models_root, "*.onnx"))):
+            config_path = _find_companion_config(onnx_path)
+            if config_path is None:
+                continue
+            name = os.path.splitext(os.path.basename(onnx_path))[0]
+            _add(name, "origin", onnx_path, config_path, None)
+
         return models
 
 
@@ -155,6 +186,23 @@ def _rel_to_root(path):
         return Path(path).resolve().relative_to(PROJECT_ROOT).as_posix()
     except ValueError:
         return os.path.abspath(path)
+
+
+def _find_companion_config(onnx_path):
+    """Config YAML accompagnant un .onnx d'origine, ou None si aucune trouvee.
+
+    Cherche, dans le meme dossier : <name>_config.yaml, <name>.yaml, plate_config.yaml.
+    """
+    base = os.path.splitext(onnx_path)[0]
+    folder = os.path.dirname(onnx_path)
+    for candidate in (
+        base + "_config.yaml",
+        base + ".yaml",
+        os.path.join(folder, "plate_config.yaml"),
+    ):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
 
 
 def _read_final_val_acc(log_path):

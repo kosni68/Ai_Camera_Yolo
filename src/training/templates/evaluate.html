@@ -65,13 +65,27 @@
       <label class="fld" for="model_select">Modele entraine</label>
       {% if models %}
       <select id="model_select">
-        <option value="">— choisir un modele entraine —</option>
-        {% for m in models %}
-        <option value="{{ m.name }}" data-model="{{ m.model_path }}" data-config="{{ m.config_path }}"
-          {% if m.is_active %}selected{% endif %}>
-          {{ m.name }}{% if m.val_acc is not none %} — val {{ '%.1f'|format(m.val_acc * 100) }}%{% endif %}{% if m.is_active %} (actif en production){% endif %}
-        </option>
-        {% endfor %}
+        <option value="">— choisir un modele —</option>
+        {% if models|selectattr('kind', 'equalto', 'trained')|list %}
+        <optgroup label="Modeles entraines">
+          {% for m in models if m.kind == 'trained' %}
+          <option value="{{ m.name }}" data-model="{{ m.model_path }}" data-config="{{ m.config_path }}"
+            {% if m.is_active %}selected{% endif %}>
+            {{ m.name }}{% if m.val_acc is not none %} — val {{ '%.1f'|format(m.val_acc * 100) }}%{% endif %}{% if m.is_active %} (actif en production){% endif %}
+          </option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+        {% if models|selectattr('kind', 'equalto', 'origin')|list %}
+        <optgroup label="Modeles d'origine">
+          {% for m in models if m.kind == 'origin' %}
+          <option value="{{ m.name }}" data-model="{{ m.model_path }}" data-config="{{ m.config_path }}"
+            {% if m.is_active %}selected{% endif %}>
+            {{ m.name }}{% if m.is_active %} (actif en production){% endif %}
+          </option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
       </select>
       <div class="hint">Selectionne un modele : ses chemins .onnx / plate_config.yaml se remplissent automatiquement (aucune copie a faire).</div>
       {% else %}
