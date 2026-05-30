@@ -163,9 +163,14 @@ def main():
     print(f"[TRAIN] Modele ONNX : {onnx_path}")
     print(f"[TRAIN] Config      : {plate_config}")
     print(
-        "[TRAIN] Pour deployer : copie ces deux fichiers vers models/ puis dans config.json "
-        "mets ocr_backend='fast_plate_ocr' et les chemins fast_plate_ocr_model_path / "
-        "fast_plate_ocr_config_path."
+        "[TRAIN] Pour tester/deployer : ouvre la webapp (python -m src.training.review_app) -> "
+        "page 'Tester le modele'. Selectionne ce modele dans la liste pour l'evaluer, puis "
+        "'Deployer' pour l'activer dans config.json (aucune copie manuelle de fichiers)."
+    )
+    print(
+        "[TRAIN] (Alternative manuelle : copier ces deux fichiers vers models/ et editer "
+        "config.json : ocr_backend='fast_plate_ocr', fast_plate_ocr_model_path / "
+        "fast_plate_ocr_config_path.)"
     )
 
 

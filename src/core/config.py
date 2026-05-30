@@ -286,6 +286,38 @@ def load_runtime_config(config_path=None):
     }
 
 
+def update_runtime_config(updates, config_path=None):
+    """Met a jour des cles de config.json puis revalide le fichier.
+
+    Lit le JSON brut, applique `updates`, reecrit (indente, ordre preserve) et
+    relance load_runtime_config pour garantir que le resultat reste valide. Sert a
+    deployer un modele OCR depuis la webapp sans editer le fichier a la main.
+    """
+    config_path = Path(config_path) if config_path else CONFIG_PATH
+
+    try:
+        original_text = config_path.read_text(encoding="utf-8")
+        raw_config = json.loads(original_text)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Configuration file not found: {config_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Configuration file is invalid JSON: {config_path} ({exc})") from exc
+
+    if not isinstance(raw_config, dict):
+        raise RuntimeError(f"Configuration file must contain a JSON object: {config_path}")
+
+    raw_config.update(updates)
+    config_path.write_text(json.dumps(raw_config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    # Si la maj casse la validation, on restaure l'original et on remonte l'erreur.
+    try:
+        load_runtime_config(config_path)
+    except RuntimeError:
+        config_path.write_text(original_text, encoding="utf-8")
+        raise
+    return raw_config
+
+
 def display_server_available():
     if os.name == "nt" or sys.platform == "darwin":
         return True

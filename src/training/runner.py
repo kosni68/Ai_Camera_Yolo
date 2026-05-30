@@ -7,6 +7,8 @@ Un seul entrainement a la fois (verrou). Enchaine deux etapes :
   2. entrainement + export ONNX  (python -m src.training.train_ocr --run)
 """
 
+import csv
+import glob
 import os
 import subprocess
 import sys
@@ -115,3 +117,57 @@ class TrainingRunner:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
         }
+
+    def list_models(self):
+        """Liste les modeles entraines prets a tester/deployer (newest first).
+
+        Scanne <output_dir>/<run>/best.onnx avec son plate_config.yaml adjacent : pas
+        besoin de copier les fichiers a la main, on pointe directement sur le dossier
+        d'entrainement. Chaque entree expose les chemins absolus (pour l'inference) et
+        relatifs au projet (pour config.json), plus la val_acc finale si dispo.
+        """
+        models = []
+        for onnx_path in glob.glob(os.path.join(self.output_dir, "*", "best.onnx")):
+            run_dir = os.path.dirname(onnx_path)
+            config_path = os.path.join(run_dir, "plate_config.yaml")
+            if not os.path.isfile(config_path):
+                continue
+            models.append(
+                {
+                    "name": os.path.basename(run_dir),
+                    "model_path": os.path.abspath(onnx_path),
+                    "config_path": os.path.abspath(config_path),
+                    "model_rel": _rel_to_root(onnx_path),
+                    "config_rel": _rel_to_root(config_path),
+                    "mtime": os.path.getmtime(onnx_path),
+                    "val_acc": _read_final_val_acc(os.path.join(run_dir, "training_log.csv")),
+                }
+            )
+        models.sort(key=lambda model: model["mtime"], reverse=True)
+        return models
+
+
+def _rel_to_root(path):
+    """Chemin relatif au projet (slashes /) si possible, sinon chemin absolu."""
+    try:
+        from pathlib import Path
+
+        return Path(path).resolve().relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        return os.path.abspath(path)
+
+
+def _read_final_val_acc(log_path):
+    """val_acc de la derniere epoch du training_log.csv, ou None si indisponible."""
+    if not os.path.isfile(log_path):
+        return None
+    try:
+        with open(log_path, "r", encoding="utf-8", newline="") as handle:
+            last = None
+            for row in csv.DictReader(handle):
+                last = row
+            if last and last.get("val_acc") not in (None, ""):
+                return float(last["val_acc"])
+    except (OSError, ValueError, KeyError):
+        return None
+    return None

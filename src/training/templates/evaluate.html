@@ -20,8 +20,16 @@
     input[type=text], input[type=number] {
       width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #2c3950; background: #0c0f14; color: #fff; font-size: 14px;
     }
+    select { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #2c3950; background: #0c0f14; color: #fff; font-size: 14px; }
     button { margin-top: 16px; width: 100%; padding: 12px; border: 0; border-radius: 10px; background: #2e8b57; color: #fff; font-weight: 600; font-size: 15px; cursor: pointer; }
     button:hover { background: #36a366; }
+    .btns { display: flex; gap: 12px; }
+    .btns button { flex: 1; }
+    button.deploy { background: #355c8b; }
+    button.deploy:hover { background: #4170a6; }
+    .ok { background: #16301f; border: 1px solid #2e8b57; color: #9ff0c0; padding: 12px; border-radius: 8px; font-size: 13px; }
+    .hint { color: #9fb0c3; font-size: 12px; margin-top: 6px; }
+    details summary { cursor: pointer; color: #9fb0c3; font-size: 13px; margin-top: 10px; }
     .err { background: #3a1f1f; border: 1px solid #8b3a3a; color: #ffb4b4; padding: 12px; border-radius: 8px; font-size: 13px; }
     .metrics { display: flex; gap: 14px; margin: 4px 0 8px; }
     .metric { flex: 1; background: #0c0f14; border-radius: 10px; padding: 16px; text-align: center; }
@@ -46,16 +54,61 @@
     <div class="sub">Le modele est lance sur tes plaques deja validees/corrigees (la verite terrain).
       Compare le score entre deux entrainements pour voir s'il s'ameliore.</div>
 
+    {% if deployed %}
+    <div class="ok" style="margin-bottom:14px">
+      ✅ Modele deploye en production : <code>{{ deployed.model }}</code><br>
+      <code>config.json</code> mis a jour (ocr_backend = fast_plate_ocr). Redemarre le service de capture pour l'appliquer.
+    </div>
+    {% endif %}
+
     <form method="post" action="{{ url_for('evaluate') }}">
-      <label class="fld" for="model_path">Modele ONNX (.onnx)</label>
-      <input type="text" id="model_path" name="model_path" value="{{ model_path }}" placeholder="models/best.onnx">
-      <label class="fld" for="config_path">Config du modele (plate_config.yaml)</label>
-      <input type="text" id="config_path" name="config_path" value="{{ config_path }}" placeholder="models/plate_config.yaml">
+      <label class="fld" for="model_select">Modele entraine</label>
+      {% if models %}
+      <select id="model_select">
+        <option value="">— choisir un modele entraine —</option>
+        {% for m in models %}
+        <option value="{{ m.name }}" data-model="{{ m.model_path }}" data-config="{{ m.config_path }}"
+          {% if m.is_active %}selected{% endif %}>
+          {{ m.name }}{% if m.val_acc is not none %} — val {{ '%.1f'|format(m.val_acc * 100) }}%{% endif %}{% if m.is_active %} (actif en production){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      <div class="hint">Selectionne un modele : ses chemins .onnx / plate_config.yaml se remplissent automatiquement (aucune copie a faire).</div>
+      {% else %}
+      <div class="hint">Aucun modele entraine trouve dans <code>models/ocr_training/</code>. <a href="{{ url_for('train_page') }}">Lance un entrainement</a> d'abord.</div>
+      {% endif %}
+
+      <details>
+        <summary>Chemins manuels (avance)</summary>
+        <label class="fld" for="model_path">Modele ONNX (.onnx)</label>
+        <input type="text" id="model_path" name="model_path" value="{{ model_path }}" placeholder="models/best.onnx">
+        <label class="fld" for="config_path">Config du modele (plate_config.yaml)</label>
+        <input type="text" id="config_path" name="config_path" value="{{ config_path }}" placeholder="models/plate_config.yaml">
+      </details>
+
       <label class="fld" for="limit">Limiter aux N plus recentes (vide = toutes)</label>
       <input type="number" id="limit" name="limit" value="{{ limit }}" min="1" placeholder="ex: 200">
-      <button type="submit">Evaluer</button>
+
+      <div class="btns">
+        <button type="submit" name="action" value="evaluate">🧪 Evaluer</button>
+        <button type="submit" name="action" value="deploy" class="deploy"
+          onclick="return confirm('Deployer ce modele en production (modifie config.json) ?');">🚀 Deployer</button>
+      </div>
     </form>
   </div>
+
+  <script>
+    const sel = document.getElementById('model_select');
+    if (sel) {
+      sel.addEventListener('change', function () {
+        const opt = sel.options[sel.selectedIndex];
+        if (opt && opt.dataset.model) {
+          document.getElementById('model_path').value = opt.dataset.model;
+          document.getElementById('config_path').value = opt.dataset.config;
+        }
+      });
+    }
+  </script>
 
   {% if error %}
   <div class="card"><div class="err">

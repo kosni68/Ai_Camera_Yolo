@@ -32,7 +32,9 @@ try:
 except ImportError:
     _FLASK_AVAILABLE = False
 
-from src.core.config import PROJECT_ROOT, load_runtime_config
+from pathlib import Path
+
+from src.core.config import PROJECT_ROOT, load_runtime_config, update_runtime_config
 from src.ocr.plate_text import format_french_plate, match_french_plate, normalize_ocr_text
 from src.training.dataset_store import (
     STATUS_CORRECTED,
@@ -99,6 +101,55 @@ def evaluate_model(store, model_path, config_path, limit=None, backend=None):
         rows.append({"id": sample["id"], "label": normalize_ocr_text(sample["label"]), "pred": pred})
 
     return score_predictions(rows)
+
+
+def _resolve_under_root(path):
+    """Chemin absolu : relatif => resolu depuis PROJECT_ROOT (cwd de la webapp)."""
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = PROJECT_ROOT / candidate
+    return candidate
+
+
+def _active_ocr_paths():
+    """Chemins absolus du modele OCR actuellement configure (vide si indispo)."""
+    try:
+        config = load_runtime_config()
+        return str(config["fast_plate_ocr_model_path"]), str(config["fast_plate_ocr_config_path"])
+    except Exception:
+        return "", ""
+
+
+def deploy_model(model_path, config_path):
+    """Active ce modele dans config.json (backend fast_plate_ocr) sans copie manuelle.
+
+    Remplace l'etape manuelle de fin de train_ocr.py : on pointe config.json sur le
+    modele entraine la ou il est (dossier d'entrainement), apres avoir verifie que les
+    fichiers existent. Renvoie les chemins relatifs ecrits dans la config.
+    """
+    model_abs = _resolve_under_root(model_path)
+    config_abs = _resolve_under_root(config_path)
+    if not model_abs.is_file():
+        raise RuntimeError(f"Modele introuvable : {model_abs}")
+    if not config_abs.is_file():
+        raise RuntimeError(f"Config du modele introuvable : {config_abs}")
+
+    def _rel(path):
+        try:
+            return path.resolve().relative_to(PROJECT_ROOT).as_posix()
+        except ValueError:
+            return str(path)
+
+    model_rel = _rel(model_abs)
+    config_rel = _rel(config_abs)
+    update_runtime_config(
+        {
+            "ocr_backend": "fast_plate_ocr",
+            "fast_plate_ocr_model_path": model_rel,
+            "fast_plate_ocr_config_path": config_rel,
+        }
+    )
+    return {"model": model_rel, "config": config_rel}
 
 
 def create_app(store):
@@ -188,19 +239,33 @@ def create_app(store):
 
     @app.route("/evaluate", methods=["GET", "POST"])
     def evaluate():
-        model_path = (request.form.get("model_path") or app.config["DEFAULT_MODEL"]).strip()
-        config_path = (request.form.get("config_path") or app.config["DEFAULT_CONFIG"]).strip()
+        active_model, active_config = _active_ocr_paths()
+        model_path = (request.form.get("model_path") or active_model or app.config["DEFAULT_MODEL"]).strip()
+        config_path = (request.form.get("config_path") or active_config or app.config["DEFAULT_CONFIG"]).strip()
         limit = (request.form.get("limit") or "").strip()
+        action = request.form.get("action", "evaluate")
 
         result = None
         error = None
+        deployed = None
         if request.method == "POST":
             try:
-                result = evaluate_model(
-                    store, model_path, config_path, limit=int(limit) if limit else None
-                )
+                if action == "deploy":
+                    deployed = deploy_model(model_path, config_path)
+                    active_model, active_config = _active_ocr_paths()
+                else:
+                    result = evaluate_model(
+                        store, model_path, config_path, limit=int(limit) if limit else None
+                    )
             except Exception as exc:
                 error = str(exc)
+
+        models = runner.list_models()
+        active_norm = os.path.normcase(os.path.abspath(active_model)) if active_model else ""
+        for model in models:
+            model["is_active"] = (
+                os.path.normcase(os.path.abspath(model["model_path"])) == active_norm
+            )
 
         return render_template(
             "evaluate.html",
@@ -210,6 +275,8 @@ def create_app(store):
             limit=limit,
             result=result,
             error=error,
+            models=models,
+            deployed=deployed,
         )
 
     @app.route("/train")
