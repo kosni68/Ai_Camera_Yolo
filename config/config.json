@@ -28,7 +28,6 @@
   "fps_limit": 20.0,
   "fps_log_interval": 3.0,
   "fps_summary_interval": 1.0,
-
   "mqtt_enabled": true,
   "mqtt_broker_host": "192.168.1.171",
   "mqtt_broker_port": 1883,
@@ -36,17 +35,14 @@
   "mqtt_password": "ha-mqtt_68440",
   "shelly_device_id": "shellyplus1mini-XXXXXX",
   "shelly_pulse_duration_sec": 3.0,
-
   "registered_plates_path": "config/registered_plates.json",
   "registered_plate_fuzzy_distance": 1,
-
   "dataset_collection_enabled": true,
   "dataset_db_path": "data/dataset/samples.db",
   "dataset_image_root": "data/dataset/images",
   "dataset_dedup_window_sec": 8.0,
   "dataset_max_per_minute": 30,
-
-  "ocr_backend": "auto",
-  "fast_plate_ocr_model_path": "models/fast_plate_ocr.onnx",
-  "fast_plate_ocr_config_path": "models/fast_plate_ocr_config.yaml"
+  "ocr_backend": "fast_plate_ocr",
+  "fast_plate_ocr_model_path": "models/cct_xs_v2_global.onnx",
+  "fast_plate_ocr_config_path": "models/cct_xs_v2_global_plate_config.yaml"
 }

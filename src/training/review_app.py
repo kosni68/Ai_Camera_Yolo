@@ -136,6 +136,64 @@ def _file_size_mb(path):
         return None
 
 
+def compare_models(store, models, limit=None):
+    """Evalue tous les `models` sur la verite terrain et renvoie un tableau comparatif.
+
+    Chaque entree de `models` doit fournir model_path / config_path (cf runner.list_models).
+    Un modele qui plante (chargement, inference) n'interrompt pas la comparaison : sa ligne
+    porte un champ `error`. Le tableau est trie par precision plaque decroissante puis par
+    temps d'inference croissant ; on annote `best_acc` / `best_speed` pour mettre en avant
+    le plus precis et le plus rapide.
+    """
+    rows = []
+    for model in models:
+        row = {
+            "name": model.get("name"),
+            "label": model.get("label") or model.get("name"),
+            "kind": model.get("kind"),
+            "model_path": model.get("model_path"),
+            "config_path": model.get("config_path"),
+            "is_active": model.get("is_active", False),
+            "error": None,
+        }
+        try:
+            metrics = evaluate_model(
+                store, model["model_path"], model["config_path"], limit=limit
+            )
+            perf = metrics["perf"]
+            row.update(
+                {
+                    "plate_acc": metrics["plate_acc"],
+                    "char_acc": metrics["char_acc"],
+                    "exact": metrics["exact"],
+                    "total": metrics["total"],
+                    "avg_ms": perf["avg_ms"],
+                    "fps": perf["fps"],
+                    "model_size_mb": perf["model_size_mb"],
+                }
+            )
+        except Exception as exc:
+            row["error"] = str(exc)
+        rows.append(row)
+
+    ok_rows = [row for row in rows if row["error"] is None]
+    if ok_rows:
+        best_acc = max(row["plate_acc"] for row in ok_rows)
+        best_speed = min(row["avg_ms"] for row in ok_rows if row["avg_ms"] > 0)
+        for row in ok_rows:
+            row["best_acc"] = row["plate_acc"] == best_acc
+            row["best_speed"] = row["avg_ms"] == best_speed
+
+    rows.sort(
+        key=lambda row: (
+            0 if row["error"] is None else 1,
+            -(row.get("plate_acc") or 0.0),
+            row.get("avg_ms") or float("inf"),
+        )
+    )
+    return rows
+
+
 def _resolve_under_root(path):
     """Chemin absolu : relatif => resolu depuis PROJECT_ROOT (cwd de la webapp)."""
     candidate = Path(path)
@@ -282,15 +340,15 @@ def create_app(store):
         error = request.args.get("dl_error")
         deployed = None
         downloaded = request.args.get("downloaded")
-        if request.method == "POST":
+        limit_value = int(limit) if limit else None
+
+        if request.method == "POST" and action in ("deploy", "evaluate"):
             try:
                 if action == "deploy":
                     deployed = deploy_model(model_path, config_path)
                     active_model, active_config = _active_ocr_paths()
                 else:
-                    result = evaluate_model(
-                        store, model_path, config_path, limit=int(limit) if limit else None
-                    )
+                    result = evaluate_model(store, model_path, config_path, limit=limit_value)
             except Exception as exc:
                 error = str(exc)
 
@@ -305,6 +363,13 @@ def create_app(store):
             else:
                 model["label"] = model["name"]
 
+        comparison = None
+        if request.method == "POST" and action == "compare_all":
+            if models:
+                comparison = compare_models(store, models, limit=limit_value)
+            else:
+                error = "Aucun modele a comparer."
+
         return render_template(
             "evaluate.html",
             counts=store.counts_by_status(),
@@ -317,6 +382,7 @@ def create_app(store):
             deployed=deployed,
             hub_catalog=model_hub.catalog(),
             downloaded=downloaded,
+            comparison=comparison,
         )
 
     @app.route("/models/download", methods=["POST"])

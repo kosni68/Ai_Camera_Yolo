@@ -51,6 +51,19 @@
     .perf { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
     .perf .metric { padding: 12px; }
     .perf .big { font-size: 22px; }
+    button.compare { background: #5a3e8b; }
+    button.compare:hover { background: #6f4fa6; }
+    table.cmp { font-size: 13px; }
+    table.cmp th, table.cmp td { padding: 8px 8px; }
+    table.cmp td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.cmp tr.active td { background: #16203010; }
+    table.cmp .best { color: #61d095; font-weight: 700; }
+    table.cmp .badge { font-size: 10px; padding: 1px 6px; border-radius: 6px; background: #2c3950; color: #cfe0f3; }
+    table.cmp .badge.active { background: #2e8b57; color: #fff; }
+    table.cmp .rowerr { color: #ff9f6b; }
+    table.cmp form { margin: 0; }
+    table.cmp button.deployrow { margin: 0; width: auto; padding: 5px 10px; font-size: 12px; background: #355c8b; }
+    table.cmp button.deployrow:hover { background: #4170a6; }
   </style>
 </head>
 <body>
@@ -124,6 +137,7 @@
         <button type="submit" name="action" value="deploy" class="deploy"
           onclick="return confirm('Deployer ce modele en production (modifie config.json) ?');">🚀 Deployer</button>
       </div>
+      <button type="submit" name="action" value="compare_all" class="compare">📊 Tester et comparer tous les modeles</button>
     </form>
   </div>
 
@@ -177,6 +191,55 @@
     Verifie que le modele existe (entraine-le d'abord) et que l'inference est installee :
     <code>pip install "fast-plate-ocr[onnx]"</code>
   </div></div>
+  {% endif %}
+
+  {% if comparison %}
+  <div class="card">
+    <h1 style="font-size:16px">Comparaison de tous les modeles</h1>
+    <div class="sub">Chaque modele est lance sur tes plaques validees. 🥇 = meilleure precision,
+      ⚡ = plus rapide. Tu peux deployer directement le gagnant.</div>
+    <table class="cmp">
+      <tr>
+        <th>Modele</th>
+        <th class="num">Plaques exactes</th>
+        <th class="num">Caracteres</th>
+        <th class="num">ms/plaque</th>
+        <th class="num">plaques/s</th>
+        <th class="num">Taille</th>
+        <th></th>
+      </tr>
+      {% for row in comparison %}
+      <tr class="{% if row.is_active %}active{% endif %}">
+        <td>
+          {{ row.label }}
+          {% if row.is_active %}<span class="badge active">actif</span>{% endif %}
+          {% if row.best_acc %}<span title="meilleure precision">🥇</span>{% endif %}
+          {% if row.best_speed %}<span title="plus rapide">⚡</span>{% endif %}
+        </td>
+        {% if row.error %}
+        <td class="rowerr" colspan="5">⚠ {{ row.error }}</td>
+        {% else %}
+        <td class="num {% if row.best_acc %}best{% endif %}">{{ '%.1f'|format(row.plate_acc) }}% ({{ row.exact }}/{{ row.total }})</td>
+        <td class="num">{{ '%.1f'|format(row.char_acc) }}%</td>
+        <td class="num {% if row.best_speed %}best{% endif %}">{{ '%.1f'|format(row.avg_ms) }}</td>
+        <td class="num">{{ '%.0f'|format(row.fps) }}</td>
+        <td class="num">{% if row.model_size_mb is not none %}{{ '%.1f'|format(row.model_size_mb) }} Mo{% else %}—{% endif %}</td>
+        {% endif %}
+        <td style="text-align:right">
+          {% if not row.error and not row.is_active %}
+          <form method="post" action="{{ url_for('evaluate') }}">
+            <input type="hidden" name="action" value="deploy">
+            <input type="hidden" name="model_path" value="{{ row.model_path }}">
+            <input type="hidden" name="config_path" value="{{ row.config_path }}">
+            <button type="submit" class="deployrow"
+              onclick="return confirm('Deployer « {{ row.label }} » en production ?');">🚀 Deployer</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
   {% endif %}
 
   {% if result %}

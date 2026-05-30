@@ -348,6 +348,11 @@ L'evaluation affiche desormais des **indicateurs de performance** en plus de la 
 temps d'inference moyen par plaque, debit (plaques/s), temps de chargement et taille du modele —
 pour arbitrer vitesse vs precision avant de deployer.
 
+Le bouton **« Tester et comparer tous les modeles »** lance tous les modeles (entraines +
+pre-entraines) sur ta verite terrain et affiche un tableau classe : precision plaque/caractere,
+ms/plaque, debit et taille, avec 🥇 (le plus precis) et ⚡ (le plus rapide). Chaque ligne propose
+un bouton « Deployer » pour mettre directement le gagnant en production.
+
 En bonus, `registered_plate_fuzzy_distance` fiabilise l'ouverture du portail des maintenant en tolerant
 une erreur OCR d'un caractere par rapport aux plaques enregistrees.
 
