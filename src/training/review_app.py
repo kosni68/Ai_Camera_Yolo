@@ -13,6 +13,7 @@ Puis ouvre http://<ip-machine>:5000/ depuis ton telephone ou ton PC.
 import argparse
 import importlib.util
 import os
+import time
 
 import cv2
 
@@ -43,6 +44,7 @@ from src.training.dataset_store import (
     DatasetStore,
     resolve_image_path,
 )
+from src.training import model_hub
 from src.training.runner import TrainingRunner
 
 
@@ -76,23 +78,36 @@ def score_predictions(rows):
 def evaluate_model(store, model_path, config_path, limit=None, backend=None):
     """Fait tourner le modele sur les plaques etiquetees et renvoie les metriques.
 
+    En plus de la precision (plaque/caractere), on mesure des indicateurs de
+    performance : temps de chargement du modele, temps d'inference moyen par plaque,
+    debit (plaques/seconde) et taille du fichier .onnx. Ces chiffres permettent de
+    comparer vitesse *et* precision entre deux modeles avant de deployer.
+
     `backend` peut etre injecte (tests) ; sinon on charge FastPlateOcrBackend.
     """
+    load_ms = None
     if backend is None:
         from src.ocr.backends.fast_plate import FastPlateOcrBackend
 
+        load_start = time.perf_counter()
         backend = FastPlateOcrBackend(model_path, config_path)
+        load_ms = (time.perf_counter() - load_start) * 1000.0
 
     samples = store.iter_labeled()
     if limit:
         samples = samples[-int(limit):]
 
     rows = []
+    inference_ms_total = 0.0
+    inference_count = 0
     for sample in samples:
         image = cv2.imread(resolve_image_path(sample["image_path"]))
         if image is None:
             continue
+        infer_start = time.perf_counter()
         raw = backend.read(image)
+        inference_ms_total += (time.perf_counter() - infer_start) * 1000.0
+        inference_count += 1
         if raw:
             match = match_french_plate(raw["raw"])
             pred = match[0] if match else normalize_ocr_text(raw["raw"])
@@ -100,7 +115,25 @@ def evaluate_model(store, model_path, config_path, limit=None, backend=None):
             pred = ""
         rows.append({"id": sample["id"], "label": normalize_ocr_text(sample["label"]), "pred": pred})
 
-    return score_predictions(rows)
+    metrics = score_predictions(rows)
+    avg_ms = (inference_ms_total / inference_count) if inference_count else 0.0
+    metrics["perf"] = {
+        "load_ms": load_ms,
+        "avg_ms": avg_ms,
+        "total_ms": inference_ms_total,
+        "fps": (1000.0 / avg_ms) if avg_ms else 0.0,
+        "samples_timed": inference_count,
+        "model_size_mb": _file_size_mb(model_path),
+    }
+    return metrics
+
+
+def _file_size_mb(path):
+    """Taille du fichier en Mo, ou None si introuvable."""
+    try:
+        return os.path.getsize(_resolve_under_root(path)) / (1024.0 * 1024.0)
+    except OSError:
+        return None
 
 
 def _resolve_under_root(path):
@@ -246,8 +279,9 @@ def create_app(store):
         action = request.form.get("action", "evaluate")
 
         result = None
-        error = None
+        error = request.args.get("dl_error")
         deployed = None
+        downloaded = request.args.get("downloaded")
         if request.method == "POST":
             try:
                 if action == "deploy":
@@ -266,6 +300,10 @@ def create_app(store):
             model["is_active"] = (
                 os.path.normcase(os.path.abspath(model["model_path"])) == active_norm
             )
+            if model["kind"] == "origin":
+                model["label"] = model_hub.friendly_label(model["model_path"]) or model["name"]
+            else:
+                model["label"] = model["name"]
 
         return render_template(
             "evaluate.html",
@@ -277,7 +315,19 @@ def create_app(store):
             error=error,
             models=models,
             deployed=deployed,
+            hub_catalog=model_hub.catalog(),
+            downloaded=downloaded,
         )
+
+    @app.route("/models/download", methods=["POST"])
+    def download_model_route():
+        """Telecharge un modele pre-entraine du hub dans models/, puis revient a /evaluate."""
+        model_id = (request.form.get("model_id") or "").strip()
+        try:
+            model_hub.download(model_id)
+            return redirect(url_for("evaluate", downloaded=model_id))
+        except Exception as exc:
+            return redirect(url_for("evaluate", dl_error=str(exc)))
 
     @app.route("/train")
     def train_page():

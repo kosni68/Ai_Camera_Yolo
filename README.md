@@ -328,6 +328,26 @@ python -m src.training.train_ocr --dataset-dir data/ocr_dataset
 
 Guide complet pas a pas : [src/training/README.md](src/training/README.md).
 
+### Modeles OCR pre-entraines (sans entrainement)
+
+Pas envie d'entrainer ? Tu peux telecharger des modeles OCR deja prets (fast-plate-ocr :
+CCT, MobileViT europeen/global) et les comparer directement dans la webapp.
+
+```bash
+# Telecharge le set recommande (europeen, global, CCT-XS) dans models/
+python -m src.training.model_hub
+python -m src.training.model_hub --list          # voir tout le catalogue
+python -m src.training.model_hub cct-s-v2-global-model   # un modele precis
+```
+
+Les modeles telecharges apparaissent dans la liste « Modeles pre-entraines » de la page
+**Tester le modele OCR** (`/evaluate`). Tu peux aussi les telecharger directement depuis cette
+page (section « Telecharger d'autres modeles »), sans ligne de commande.
+
+L'evaluation affiche desormais des **indicateurs de performance** en plus de la precision :
+temps d'inference moyen par plaque, debit (plaques/s), temps de chargement et taille du modele —
+pour arbitrer vitesse vs precision avant de deployer.
+
 En bonus, `registered_plate_fuzzy_distance` fiabilise l'ouverture du portail des maintenant en tolerant
 une erreur OCR d'un caractere par rapport aux plaques enregistrees.
 

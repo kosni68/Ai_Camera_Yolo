@@ -191,12 +191,15 @@ def _rel_to_root(path):
 def _find_companion_config(onnx_path):
     """Config YAML accompagnant un .onnx d'origine, ou None si aucune trouvee.
 
-    Cherche, dans le meme dossier : <name>_config.yaml, <name>.yaml, plate_config.yaml.
+    Cherche, dans le meme dossier : <name>_config.yaml, <name>_plate_config.yaml,
+    <name>.yaml, plate_config.yaml. Le suffixe `_plate_config.yaml` couvre les modeles
+    du hub fast-plate-ocr (ex: cct_xs_v2_global + cct_xs_v2_global_plate_config.yaml).
     """
     base = os.path.splitext(onnx_path)[0]
     folder = os.path.dirname(onnx_path)
     for candidate in (
         base + "_config.yaml",
+        base + "_plate_config.yaml",
         base + ".yaml",
         os.path.join(folder, "plate_config.yaml"),
     ):

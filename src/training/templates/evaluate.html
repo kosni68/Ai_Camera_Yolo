@@ -41,6 +41,16 @@
     td img { height: 34px; border-radius: 4px; background: #000; }
     .exp { color: #61d095; } .got { color: #ff9f6b; font-weight: 600; }
     .top { width: 100%; max-width: 760px; display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
+    table.hub td { vertical-align: top; }
+    .hubid { color: #6b7c92; font-size: 11px; font-family: ui-monospace, monospace; margin-top: 2px; }
+    .hubdesc { color: #9fb0c3; font-size: 13px; }
+    .tag { background: #2e8b57; color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 6px; vertical-align: middle; }
+    .installed { color: #61d095; font-size: 13px; font-weight: 600; }
+    button.dl { margin: 0; width: auto; padding: 7px 12px; font-size: 13px; background: #355c8b; }
+    button.dl:hover { background: #4170a6; }
+    .perf { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+    .perf .metric { padding: 12px; }
+    .perf .big { font-size: 22px; }
   </style>
 </head>
 <body>
@@ -61,6 +71,12 @@
     </div>
     {% endif %}
 
+    {% if downloaded %}
+    <div class="ok" style="margin-bottom:14px">
+      ✅ Modele telecharge : <code>{{ downloaded }}</code>. Il apparait maintenant dans la liste ci-dessus.
+    </div>
+    {% endif %}
+
     <form method="post" action="{{ url_for('evaluate') }}">
       <label class="fld" for="model_select">Modele entraine</label>
       {% if models %}
@@ -71,17 +87,17 @@
           {% for m in models if m.kind == 'trained' %}
           <option value="{{ m.name }}" data-model="{{ m.model_path }}" data-config="{{ m.config_path }}"
             {% if m.is_active %}selected{% endif %}>
-            {{ m.name }}{% if m.val_acc is not none %} — val {{ '%.1f'|format(m.val_acc * 100) }}%{% endif %}{% if m.is_active %} (actif en production){% endif %}
+            {{ m.label }}{% if m.val_acc is not none %} — val {{ '%.1f'|format(m.val_acc * 100) }}%{% endif %}{% if m.is_active %} (actif en production){% endif %}
           </option>
           {% endfor %}
         </optgroup>
         {% endif %}
         {% if models|selectattr('kind', 'equalto', 'origin')|list %}
-        <optgroup label="Modeles d'origine">
+        <optgroup label="Modeles pre-entraines">
           {% for m in models if m.kind == 'origin' %}
           <option value="{{ m.name }}" data-model="{{ m.model_path }}" data-config="{{ m.config_path }}"
             {% if m.is_active %}selected{% endif %}>
-            {{ m.name }}{% if m.is_active %} (actif en production){% endif %}
+            {{ m.label }}{% if m.is_active %} (actif en production){% endif %}
           </option>
           {% endfor %}
         </optgroup>
@@ -110,6 +126,37 @@
       </div>
     </form>
   </div>
+
+  {% if hub_catalog %}
+  <div class="card">
+    <h1 style="font-size:16px">Telecharger d'autres modeles</h1>
+    <div class="sub">Modeles OCR pre-entraines (fast-plate-ocr). Une fois telecharges, ils
+      rejoignent la liste « Modeles pre-entraines » ci-dessus et peuvent etre evalues / deployes.</div>
+    <table class="hub">
+      <tr><th>Modele</th><th>Description</th><th></th></tr>
+      {% for hm in hub_catalog %}
+      <tr>
+        <td>
+          {{ hm.label }}{% if hm.recommended %} <span class="tag">recommande</span>{% endif %}
+          <div class="hubid">{{ hm.id }}</div>
+        </td>
+        <td class="hubdesc">{{ hm.description }}</td>
+        <td style="white-space:nowrap;text-align:right">
+          {% if hm.installed %}
+            <span class="installed">✓ installe</span>
+          {% else %}
+          <form method="post" action="{{ url_for('download_model_route') }}" style="margin:0">
+            <input type="hidden" name="model_id" value="{{ hm.id }}">
+            <button type="submit" class="dl">⬇ Telecharger</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    <div class="hint">Le telechargement se fait depuis le serveur (quelques Mo par modele). Patiente apres avoir clique.</div>
+  </div>
+  {% endif %}
 
   <script>
     const sel = document.getElementById('model_select');
@@ -144,6 +191,36 @@
         <div class="lbl">caracteres corrects</div>
       </div>
     </div>
+
+    {% if result.perf %}
+    <h1 style="font-size:15px;margin-top:18px">Performance</h1>
+    <div class="perf">
+      <div class="metric">
+        <div class="big">{{ '%.1f'|format(result.perf.avg_ms) }} ms</div>
+        <div class="lbl">temps moyen / plaque</div>
+      </div>
+      <div class="metric">
+        <div class="big">{{ '%.0f'|format(result.perf.fps) }}</div>
+        <div class="lbl">plaques / seconde</div>
+      </div>
+      <div class="metric">
+        <div class="big">{{ '%.0f'|format(result.perf.total_ms) }} ms</div>
+        <div class="lbl">inference totale ({{ result.perf.samples_timed }} img)</div>
+      </div>
+      {% if result.perf.load_ms is not none %}
+      <div class="metric">
+        <div class="big">{{ '%.0f'|format(result.perf.load_ms) }} ms</div>
+        <div class="lbl">chargement du modele</div>
+      </div>
+      {% endif %}
+      {% if result.perf.model_size_mb is not none %}
+      <div class="metric">
+        <div class="big">{{ '%.1f'|format(result.perf.model_size_mb) }} Mo</div>
+        <div class="lbl">taille du modele</div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
 
     {% if result.errors %}
     <h1 style="font-size:15px;margin-top:18px">Erreurs ({{ result.errors|length }})</h1>
