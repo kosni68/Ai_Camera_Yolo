@@ -1,11 +1,11 @@
-.current_plate=
+current_plate=
 consecutive_reads=0
-ocr_jobs_processed=19
+ocr_jobs_processed=20
 ocr_success_stabilized=0
-ocr_failure_total=19
+ocr_failure_total=20
 ocr_failure_non_french=9
 ocr_failure_unstable=2
-ocr_failure_empty=8
+ocr_failure_empty=9
 ocr_success_rate_pct=0.0
 ocr_failure_rate_pct=100.0
 session_started_at=2026-05-30 08:30:24

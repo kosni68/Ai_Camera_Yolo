@@ -40,7 +40,7 @@
   "registered_plates_path": "config/registered_plates.json",
   "registered_plate_fuzzy_distance": 1,
 
-  "dataset_collection_enabled": false,
+  "dataset_collection_enabled": true,
   "dataset_db_path": "data/dataset/samples.db",
   "dataset_image_root": "data/dataset/images",
   "dataset_dedup_window_sec": 8.0,

@@ -177,6 +177,12 @@ class DatasetStore:
             self._conn.commit()
             return cursor.rowcount > 0
 
+    def existing_image_paths(self):
+        """Ensemble des image_path deja en base (pour eviter les doublons a l'import)."""
+        with self._lock:
+            rows = self._conn.execute("SELECT image_path FROM samples").fetchall()
+        return {row["image_path"] for row in rows}
+
     def counts_by_status(self):
         counts = {status: 0 for status in VALID_STATUSES}
         with self._lock:
